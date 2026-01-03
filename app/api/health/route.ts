@@ -2,16 +2,46 @@ import { NextRequest, NextResponse } from 'next/server';
 import { OuraClient } from '@/lib/oura-client';
 import { WhoopClient } from '@/lib/whoop-client';
 import { processHealthData } from '@/lib/data-aggregator';
+import { D1Client, dbRecordToWeeklyData, type D1Database } from '@/lib/d1-client';
 import { getDateRange } from '@/lib/utils';
 
 export const runtime = 'edge';
+
+// Get D1 database from request context (Cloudflare Pages)
+function getD1(request: NextRequest): D1Database | null {
+  // @ts-expect-error - Cloudflare env bindings
+  const env = request.cf?.env || globalThis.env;
+  return env?.DB || null;
+}
 
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const weeks = parseInt(searchParams.get('weeks') || '12', 10);
+    const useCache = searchParams.get('cache') !== 'false';
 
     const { start, end } = getDateRange(weeks);
+
+    // Try to get data from D1 first (if available and cache enabled)
+    const db = getD1(request);
+    if (db && useCache) {
+      try {
+        const d1 = new D1Client(db);
+        const dbRecords = await d1.getWeeklyRecords(weeks);
+
+        if (dbRecords.length > 0) {
+          return NextResponse.json({
+            success: true,
+            data: dbRecords.map(dbRecordToWeeklyData),
+            sources: { oura: true, whoop: true, cached: true },
+            message: 'Data from database cache',
+          });
+        }
+      } catch (error) {
+        console.error('D1 read error:', error);
+        // Fall through to API fetch
+      }
+    }
 
     // Get tokens from environment or request headers
     const ouraToken =

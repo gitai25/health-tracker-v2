@@ -3,6 +3,14 @@ compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = ".vercel/output/static"
 
+# D1 Database binding
+# Run: wrangler d1 create health-tracker-db
+# Then update the database_id below
+[[d1_databases]]
+binding = "DB"
+database_name = "health-tracker-db"
+database_id = "YOUR_DATABASE_ID_HERE"
+
 [vars]
 # Set these in Cloudflare Dashboard > Pages > Settings > Environment variables
 # OURA_ACCESS_TOKEN = ""

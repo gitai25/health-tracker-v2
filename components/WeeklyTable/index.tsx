@@ -16,29 +16,29 @@ export default function WeeklyTable({ initialData = [] }: WeeklyTableProps) {
   const [data, setData] = useState<WeeklyHealthData[]>(initialData);
   const [loading, setLoading] = useState(!initialData.length);
   const [error, setError] = useState<string | null>(null);
-  const [sources, setSources] = useState({ oura: false, whoop: false });
+  const [sources, setSources] = useState({ oura: false, whoop: false, cached: false });
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/health?weeks=12");
+      const result = await response.json();
+
+      if (result.success) {
+        setData(result.data);
+        setSources(result.sources || { oura: false, whoop: false, cached: false });
+      } else {
+        setError(result.error || "Failed to fetch data");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch data");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (initialData.length) return;
-
-    async function fetchData() {
-      try {
-        const response = await fetch("/api/health?weeks=12");
-        const result = await response.json();
-
-        if (result.success) {
-          setData(result.data);
-          setSources(result.sources || { oura: false, whoop: false });
-        } else {
-          setError(result.error || "Failed to fetch data");
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to fetch data");
-      } finally {
-        setLoading(false);
-      }
-    }
-
     fetchData();
   }, [initialData]);
 
@@ -99,7 +99,12 @@ export default function WeeklyTable({ initialData = [] }: WeeklyTableProps) {
           </p>
         </div>
 
-        <DataSources oura={sources.oura} whoop={sources.whoop} />
+        <DataSources
+          oura={sources.oura}
+          whoop={sources.whoop}
+          cached={sources.cached}
+          onRefresh={fetchData}
+        />
 
         <SummaryCards data={data} />
 
