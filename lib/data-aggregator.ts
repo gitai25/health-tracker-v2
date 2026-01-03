@@ -9,25 +9,47 @@ import type {
   WhoopSleep,
 } from './types';
 
-// Determine zone based on strain/MET and recovery
-function determineZone(strain: number | null, recovery: number | null): string {
-  if (strain === null) return '恢复稳态';
+// Determine zone based on MET-minutes and recovery
+// MET-min zones: 900-1200 optimal, 1050 golden anchor
+function determineZone(
+  metMinutes: number | null,
+  recovery: number | null,
+  strain: number | null
+): string {
+  // If we have MET-minutes (from Oura), use that
+  if (metMinutes !== null) {
+    if (metMinutes > 1500) return 'J型右侧风险';
+    if (metMinutes > 1400) return '右侧临界';
+    if (metMinutes > 1300) return '高负荷';
+    if (metMinutes > 1200) return '轻度高负荷';
+    if (metMinutes > 1100) return '稍高';
 
-  // High strain zones
-  if (strain > 18) return 'J型右侧风险';
-  if (strain > 16) return '右侧临界';
-  if (strain > 14) return '高负荷';
-  if (strain > 12) return '轻度高负荷';
-  if (strain > 10) return '稍高';
+    if (recovery !== null) {
+      if (recovery >= 67 && metMinutes >= 1000 && metMinutes <= 1100) return '黄金锚点';
+      if (recovery >= 67 && metMinutes >= 900 && metMinutes <= 1200) return '最优区';
+      if (recovery < 34) return '恢复稳态';
+    }
 
-  // Based on recovery
-  if (recovery !== null) {
-    if (recovery >= 67 && strain >= 8 && strain <= 12) return '黄金锚点';
-    if (recovery >= 67) return '最优区';
-    if (recovery < 34) return '恢复稳态';
+    if (metMinutes >= 900 && metMinutes <= 1200) return '最优区';
+    if (metMinutes < 900) return '恢复稳态';
   }
 
-  return '最优区';
+  // Fallback to Whoop strain if no MET-minutes
+  if (strain !== null) {
+    if (strain > 18) return 'J型右侧风险';
+    if (strain > 16) return '右侧临界';
+    if (strain > 14) return '高负荷';
+    if (strain > 12) return '轻度高负荷';
+    if (strain > 10) return '稍高';
+
+    if (recovery !== null) {
+      if (recovery >= 67 && strain >= 8 && strain <= 12) return '黄金锚点';
+      if (recovery >= 67) return '最优区';
+      if (recovery < 34) return '恢复稳态';
+    }
+  }
+
+  return '恢复稳态';
 }
 
 // Determine trend based on recent data
@@ -100,8 +122,15 @@ export function aggregateDailyData(
   // Steps (Oura specific)
   const steps = ouraActivity?.steps ?? null;
 
-  // Determine zone based on strain and recovery
-  const zone = determineZone(strain, recovery_score);
+  // MET-minutes (Oura specific - sum of high, medium, low activity)
+  const met_minutes = ouraActivity
+    ? (ouraActivity.high_activity_met_minutes ?? 0) +
+      (ouraActivity.medium_activity_met_minutes ?? 0) +
+      (ouraActivity.low_activity_met_minutes ?? 0)
+    : null;
+
+  // Determine zone based on MET-minutes, recovery, and strain
+  const zone = determineZone(met_minutes, recovery_score, strain);
 
   return {
     date,
@@ -123,6 +152,7 @@ export function aggregateDailyData(
       rhr,
       strain,
       steps,
+      met_minutes,
       zone,
       trend: '→', // Will be computed when we have multiple days
       health_status: '健康',
@@ -163,6 +193,9 @@ export function aggregateWeeklyData(
   const strainValues = dailyData
     .map((d) => d.combined.strain)
     .filter((s): s is number => s !== null);
+  const metMinutesValues = dailyData
+    .map((d) => d.combined.met_minutes)
+    .filter((s): s is number => s !== null);
 
   const avg = (arr: number[]) =>
     arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
@@ -175,12 +208,12 @@ export function aggregateWeeklyData(
   const avg_hrv = avg(hrvValues);
   const avg_steps = avg(stepsValues);
   const total_strain = sum(strainValues);
+  const total_met_minutes = sum(metMinutesValues);
 
-  // Determine weekly zone
-  const zone = determineZone(
-    total_strain !== null ? total_strain / 7 : null,
-    avg_recovery
-  );
+  // Determine weekly zone based on average daily MET-minutes
+  const avgDailyMetMin = total_met_minutes !== null ? total_met_minutes / dailyData.length : null;
+  const avgDailyStrain = total_strain !== null ? total_strain / dailyData.length : null;
+  const zone = determineZone(avgDailyMetMin, avg_recovery, avgDailyStrain);
 
   return {
     week: `Week ${weekNum}`,
@@ -194,6 +227,7 @@ export function aggregateWeeklyData(
     avg_hrv,
     avg_steps,
     total_strain,
+    total_met_minutes,
     zone,
     trend: '→', // Will be computed with previous week data
     health_status: '健康',

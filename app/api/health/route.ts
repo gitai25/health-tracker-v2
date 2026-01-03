@@ -129,12 +129,13 @@ function getDemoData() {
     const sleep = Math.floor(Math.random() * 25) + 65;
     const hrv = Math.floor(Math.random() * 40) + 30;
     const steps = Math.floor(Math.random() * 5000) + 6000;
-    const strain = Math.random() * 10 + 8;
+    const metMin = Math.floor(Math.random() * 400) + 900; // 900-1300 MET-min
 
     let zone = '最优区';
-    if (strain > 16) zone = '高负荷';
-    else if (strain > 14) zone = '轻度高负荷';
-    else if (recovery > 67) zone = '黄金锚点';
+    if (metMin > 1400) zone = '高负荷';
+    else if (metMin > 1200) zone = '轻度高负荷';
+    else if (metMin > 1100) zone = '稍高';
+    else if (recovery > 67 && metMin >= 1000 && metMin <= 1100) zone = '黄金锚点';
     else if (recovery < 34) zone = '恢复稳态';
 
     weeks.push({
@@ -148,7 +149,8 @@ function getDemoData() {
       avg_sleep: sleep,
       avg_hrv: hrv,
       avg_steps: steps,
-      total_strain: Math.round(strain * 7 * 10) / 10,
+      total_strain: null,
+      total_met_minutes: metMin * 7, // Weekly total
       zone,
       trend: ['↑', '→', '↓'][Math.floor(Math.random() * 3)],
       health_status: '健康',

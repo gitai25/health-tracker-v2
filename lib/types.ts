@@ -41,6 +41,9 @@ export interface OuraActivity {
   active_calories: number;
   steps: number;
   equivalent_walking_distance: number;
+  high_activity_met_minutes: number; // MET-minutes for high activity
+  medium_activity_met_minutes: number; // MET-minutes for medium activity
+  low_activity_met_minutes: number; // MET-minutes for low activity
   met: {
     interval: number;
     items: number[];
@@ -152,6 +155,7 @@ export interface DailyHealthData {
     rhr: number | null;
     strain: number | null;
     steps: number | null;
+    met_minutes: number | null; // Total MET-minutes
     zone: string;
     trend: string;
     health_status: string;
@@ -172,6 +176,7 @@ export interface WeeklyHealthData {
   avg_hrv: number | null;
   avg_steps: number | null;
   total_strain: number | null;
+  total_met_minutes: number | null; // Weekly total MET-minutes
 
   // Status
   zone: string;

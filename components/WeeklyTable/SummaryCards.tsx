@@ -12,15 +12,20 @@ export default function SummaryCards({ data }: SummaryCardsProps) {
   const stats = useMemo(() => {
     if (data.length === 0) {
       return {
+        avgMetMin: null,
         avgReadiness: null,
         avgRecovery: null,
         avgSleep: null,
         avgHrv: null,
         avgSteps: null,
-        avgStrain: null,
       };
     }
 
+    const validMetMin = data
+      .map((d) => d.total_met_minutes !== null && d.daily_data.length > 0
+        ? d.total_met_minutes / d.daily_data.length
+        : null)
+      .filter((v): v is number => v !== null);
     const validReadiness = data
       .map((d) => d.avg_readiness)
       .filter((v): v is number => v !== null);
@@ -36,24 +41,29 @@ export default function SummaryCards({ data }: SummaryCardsProps) {
     const validSteps = data
       .map((d) => d.avg_steps)
       .filter((v): v is number => v !== null);
-    const validStrain = data
-      .map((d) => d.total_strain)
-      .filter((v): v is number => v !== null);
 
     const avg = (arr: number[]) =>
       arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
 
     return {
+      avgMetMin: avg(validMetMin),
       avgReadiness: avg(validReadiness),
       avgRecovery: avg(validRecovery),
       avgSleep: avg(validSleep),
       avgHrv: avg(validHrv),
       avgSteps: avg(validSteps),
-      avgStrain: avg(validStrain),
     };
   }, [data]);
 
   const cards = [
+    {
+      label: "Avg MET-min",
+      value: stats.avgMetMin,
+      suffix: "",
+      hint: "Target: 900-1200",
+      hintColor: "text-amber-600",
+      source: "oura",
+    },
     {
       label: "Avg Readiness",
       value: stats.avgReadiness,
@@ -93,14 +103,6 @@ export default function SummaryCards({ data }: SummaryCardsProps) {
       hint: "Daily Average",
       hintColor: "text-teal-600",
       source: "oura",
-    },
-    {
-      label: "Avg Strain",
-      value: stats.avgStrain,
-      suffix: "",
-      hint: "Weekly Load",
-      hintColor: "text-orange-600",
-      source: "whoop",
     },
   ];
 

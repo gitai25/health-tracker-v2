@@ -87,3 +87,12 @@ export function getStepsStyle(steps: number | null): string {
   if (steps < 5000) return "text-amber-600";
   return "text-slate-600";
 }
+
+export function getMetMinutesStyle(metMin: number | null): string {
+  if (metMin === null) return "text-gray-400";
+  if (metMin > 1400) return "text-red-600 font-bold";
+  if (metMin > 1200) return "text-amber-600 font-bold";
+  if (metMin >= 900 && metMin <= 1200) return "text-green-600 font-bold";
+  if (metMin < 900) return "text-blue-600";
+  return "text-slate-600";
+}

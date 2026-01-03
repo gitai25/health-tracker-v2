@@ -10,6 +10,7 @@ import {
   getSleepStyle,
   getStrainStyle,
   getStepsStyle,
+  getMetMinutesStyle,
 } from "./styles";
 import type { WeeklyHealthData } from "@/lib/types";
 
@@ -18,6 +19,11 @@ interface TableRowProps {
 }
 
 export default function TableRow({ row }: TableRowProps) {
+  // Calculate average daily MET-minutes for display
+  const avgDailyMetMin = row.total_met_minutes !== null && row.daily_data.length > 0
+    ? Math.round(row.total_met_minutes / row.daily_data.length)
+    : row.total_met_minutes;
+
   return (
     <tr
       className={`${getRowStyle(row.total_strain, row.zone, row.health_status)} transition-colors hover:opacity-80`}
@@ -26,6 +32,13 @@ export default function TableRow({ row }: TableRowProps) {
         {row.week}
       </td>
       <td className="px-3 py-2 text-slate-600 text-sm">{row.date_range}</td>
+      <td className="px-3 py-2 text-center">
+        <span
+          className={`font-mono font-bold text-sm ${getMetMinutesStyle(avgDailyMetMin)}`}
+        >
+          {avgDailyMetMin ?? "-"}
+        </span>
+      </td>
       <td className="px-3 py-2 text-center">
         <span
           className={`font-mono font-bold text-sm ${getReadinessStyle(row.avg_readiness)}`}
@@ -48,15 +61,6 @@ export default function TableRow({ row }: TableRowProps) {
       <td className="px-3 py-2 text-center">
         <span className={`font-mono text-sm ${getSleepStyle(row.avg_sleep)}`}>
           {row.avg_sleep ?? "-"}
-        </span>
-      </td>
-      <td className="px-3 py-2 text-center">
-        <span
-          className={`font-mono text-sm ${getStrainStyle(row.total_strain)}`}
-        >
-          {row.total_strain !== null
-            ? Math.round(row.total_strain * 10) / 10
-            : "-"}
         </span>
       </td>
       <td className="px-3 py-2 text-center">

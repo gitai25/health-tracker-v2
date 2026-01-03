@@ -117,6 +117,9 @@ export default function WeeklyTable({ initialData = [] }: WeeklyTableProps) {
                     <th className="px-3 py-3 text-left font-semibold">Week</th>
                     <th className="px-3 py-3 text-left font-semibold">Date</th>
                     <th className="px-3 py-3 text-center font-semibold">
+                      <span className="text-amber-300">MET-min</span>
+                    </th>
+                    <th className="px-3 py-3 text-center font-semibold">
                       <span className="text-purple-300">Readiness</span>
                     </th>
                     <th className="px-3 py-3 text-center font-semibold">
@@ -124,7 +127,6 @@ export default function WeeklyTable({ initialData = [] }: WeeklyTableProps) {
                     </th>
                     <th className="px-3 py-3 text-center font-semibold">HRV</th>
                     <th className="px-3 py-3 text-center font-semibold">Sleep</th>
-                    <th className="px-3 py-3 text-center font-semibold">Strain</th>
                     <th className="px-3 py-3 text-center font-semibold">Steps</th>
                     <th className="px-3 py-3 text-center font-semibold">Zone</th>
                     <th className="px-3 py-3 text-center font-semibold">Trend</th>
