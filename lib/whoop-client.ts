@@ -2,12 +2,16 @@ import type {
   WhoopRecovery,
   WhoopCycle,
   WhoopSleep,
-  WhoopApiResponse,
 } from './types';
 import type { D1Database } from './d1-client';
 import { TokenStore } from './token-store';
 
-const WHOOP_BASE_URL = 'https://api.prod.whoop.com/developer/v1';
+const WHOOP_BASE_URL = 'https://api.prod.whoop.com/developer/v2';
+
+interface WhoopV2Response<T> {
+  records: T[];
+  next_token?: string;
+}
 
 export class WhoopClient {
   private accessToken: string;
@@ -29,57 +33,76 @@ export class WhoopClient {
     return this.accessToken;
   }
 
-  private async fetch<T>(
+  private async fetchWithPagination<T>(
     endpoint: string,
-    params: Record<string, string> = {}
-  ): Promise<WhoopApiResponse<T>> {
-    // Get valid token (auto-refresh if expired)
+    startDate: string
+  ): Promise<T[]> {
     const token = await this.getValidToken();
+    const startDateObj = new Date(startDate);
+    const results: T[] = [];
+    let nextToken: string | null = null;
 
-    const url = new URL(`${WHOOP_BASE_URL}/${endpoint}`);
-    Object.entries(params).forEach(([key, value]) => {
-      url.searchParams.append(key, value);
-    });
+    while (true) {
+      const url = nextToken
+        ? `${WHOOP_BASE_URL}/${endpoint}?nextToken=${encodeURIComponent(nextToken)}`
+        : `${WHOOP_BASE_URL}/${endpoint}?limit=25`;
 
-    const response = await fetch(url.toString(), {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
-    if (!response.ok) {
-      throw new Error(`Whoop API error: ${response.status} ${response.statusText}`);
+      if (!response.ok) {
+        throw new Error(`Whoop API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data: WhoopV2Response<T> = await response.json();
+
+      if (data.records) {
+        results.push(...data.records);
+      }
+
+      // Stop if we've gone past the start date
+      const lastRecord = data.records?.[data.records.length - 1] as any;
+      const recordDate = lastRecord?.start || lastRecord?.created_at;
+      if (recordDate && new Date(recordDate) < startDateObj) {
+        break;
+      }
+
+      nextToken = data.next_token || null;
+      if (!nextToken) break;
     }
 
-    return response.json();
+    return results;
   }
 
-  async getRecovery(
-    startDate: string,
-    endDate: string
-  ): Promise<WhoopRecovery[]> {
-    const response = await this.fetch<WhoopRecovery>('recovery', {
-      start: startDate,
-      end: endDate,
+  async getRecovery(startDate: string, endDate: string): Promise<WhoopRecovery[]> {
+    const allRecoveries = await this.fetchWithPagination<WhoopRecovery>('recovery', startDate);
+    // Filter to date range
+    return allRecoveries.filter((r) => {
+      const date = r.created_at.split('T')[0];
+      return date >= startDate && date <= endDate;
     });
-    return response.records;
   }
 
   async getCycles(startDate: string, endDate: string): Promise<WhoopCycle[]> {
-    const response = await this.fetch<WhoopCycle>('cycle', {
-      start: startDate,
-      end: endDate,
+    const allCycles = await this.fetchWithPagination<WhoopCycle>('cycle', startDate);
+    // Filter to date range
+    return allCycles.filter((c) => {
+      const date = c.start.split('T')[0];
+      return date >= startDate && date <= endDate;
     });
-    return response.records;
   }
 
   async getSleep(startDate: string, endDate: string): Promise<WhoopSleep[]> {
-    const response = await this.fetch<WhoopSleep>('activity/sleep', {
-      start: startDate,
-      end: endDate,
+    const allSleep = await this.fetchWithPagination<WhoopSleep>('activity/sleep', startDate);
+    // Filter to date range
+    return allSleep.filter((s) => {
+      const date = s.start.split('T')[0];
+      return date >= startDate && date <= endDate;
     });
-    return response.records;
   }
 
   async getAllData(
