@@ -3,8 +3,8 @@ main = "cron-refresh.js"
 compatibility_date = "2024-09-23"
 
 [triggers]
-# Run every hour at minute 5 (e.g., 1:05, 2:05, 3:05...)
-crons = ["5 * * * *"]
+# Run every 30 minutes (at minute 5 and 35)
+crons = ["5,35 * * * *"]
 
 [vars]
 PAGES_URL = "https://health-tracker-v2.pages.dev"

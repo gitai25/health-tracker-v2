@@ -88,12 +88,13 @@ export function aggregateDailyData(
   whoopCycle: WhoopCycle | undefined,
   whoopSleep: WhoopSleep | undefined
 ): DailyHealthData {
-  // Extract HRV (prefer Whoop as it's more precise)
-  const hrv =
+  // Extract HRV (prefer Whoop as it's more precise), round to integer
+  const rawHrv =
     whoopRecovery?.score?.hrv_rmssd_milli ??
     (ouraReadiness?.contributors.hrv_balance
       ? ouraReadiness.contributors.hrv_balance
       : null);
+  const hrv = rawHrv !== null ? Math.round(rawHrv) : null;
 
   // Extract RHR
   const rhr =
