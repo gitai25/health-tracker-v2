@@ -21,10 +21,12 @@ export default function SummaryCards({ data }: SummaryCardsProps) {
       };
     }
 
-    const validMetMin = data
-      .map((d) => d.total_met_minutes !== null && d.daily_data.length > 0
-        ? d.total_met_minutes / d.daily_data.length
-        : null)
+    // Calculate average weekly MET-min (only count complete weeks with 7 days)
+    const completeWeeks = data.filter(
+      (d) => d.row_type === 'week' && d.daily_data.length === 7 && d.total_met_minutes !== null
+    );
+    const validMetMin = completeWeeks
+      .map((d) => d.total_met_minutes!)
       .filter((v): v is number => v !== null);
     const validReadiness = data
       .map((d) => d.avg_readiness)
@@ -57,12 +59,12 @@ export default function SummaryCards({ data }: SummaryCardsProps) {
 
   const cards = [
     {
-      label: "Avg MET-min",
+      label: "Avg Weekly MET",
       value: stats.avgMetMin,
       suffix: "",
-      hint: "Target: 900-1200",
+      hint: "Target: 900-1200/week",
       hintColor: "text-amber-600",
-      source: "oura",
+      source: "whoop",
     },
     {
       label: "Avg Readiness",
