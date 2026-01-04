@@ -127,7 +127,10 @@ export function aggregateDailyData(
 
   // MET-minutes calculation:
   // - Oura: sum of high, medium, low activity MET-minutes
-  // - Whoop: convert kilojoules to MET-minutes (kJ / 52)
+  // - Whoop: convert kilojoules to MET-minutes
+  //   Formula: 1 MET-min ≈ 0.0175 kcal/kg/min * weight * 4.184 kJ/kcal
+  //   For ~70kg person: 1 MET-min ≈ 5.1 kJ, so MET-min = kJ / 5
+  //   Using kJ / 8 as conservative estimate to match typical Oura ranges
   let met_minutes: number | null = null;
   if (ouraActivity) {
     met_minutes =
@@ -135,8 +138,8 @@ export function aggregateDailyData(
       (ouraActivity.medium_activity_met_minutes ?? 0) +
       (ouraActivity.low_activity_met_minutes ?? 0);
   } else if (kilojoule !== null) {
-    // Convert Whoop kilojoules to MET-minutes
-    met_minutes = Math.round(kilojoule / 52);
+    // Convert Whoop kilojoules to MET-minutes (kJ / 8)
+    met_minutes = Math.round(kilojoule / 8);
   }
 
   // Determine zone based on MET-minutes, recovery, and strain
@@ -457,17 +460,15 @@ export function processHealthData(
 
       // Then add daily rows (newest first)
       const sortedDays = [...days].sort((a, b) => b.date.localeCompare(a.date));
-      let cumulativeMetMin = 0;
 
       for (const day of sortedDays) {
         const dayDate = new Date(day.date);
-        // Calculate cumulative from oldest to this day
+        // Calculate cumulative MET-min from oldest to this day using combined.met_minutes
         const daysUpToThis = days.filter(d => d.date <= day.date);
-        const cumulativeKj = daysUpToThis.reduce(
-          (acc, d) => acc + (d.whoop?.strain?.score?.kilojoule ?? 0),
+        const cumulativeMetMin = daysUpToThis.reduce(
+          (acc, d) => acc + (d.combined.met_minutes ?? 0),
           0
         );
-        cumulativeMetMin = Math.round(cumulativeKj / 52);
 
         result.push({
           week: `  ${dayDate.getMonth() + 1}/${dayDate.getDate()}`,
