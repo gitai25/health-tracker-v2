@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { OuraClient } from '@/lib/oura-client';
-import { WhoopClient } from '@/lib/whoop-client';
+import { OuraClient, createOuraClientWithD1 } from '@/lib/oura-client';
+import { WhoopClient, createWhoopClientWithD1 } from '@/lib/whoop-client';
 import { processHealthData } from '@/lib/data-aggregator';
 import { getDateRange } from '@/lib/utils';
+import type { D1Database } from '@/lib/d1-client';
 
 export const runtime = 'edge';
+
+interface CloudflareEnv {
+  DB: D1Database;
+}
+
+function getD1(): D1Database | undefined {
+  return (process.env as unknown as CloudflareEnv).DB;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,29 +21,43 @@ export async function GET(request: NextRequest) {
     const weeks = parseInt(searchParams.get('weeks') || '12', 10);
 
     const { start, end } = getDateRange(weeks);
-
-    const ouraToken = process.env.OURA_ACCESS_TOKEN;
-    const whoopToken = process.env.WHOOP_ACCESS_TOKEN;
+    const db = getD1();
 
     let ouraData = null;
     let whoopData = null;
 
-    if (ouraToken) {
-      try {
-        const ouraClient = new OuraClient(ouraToken);
-        ouraData = await ouraClient.getAllData(start, end);
-      } catch (error) {
-        console.error('Oura API error:', error);
+    // Try to get Oura data - first from D1, then from env
+    try {
+      if (db) {
+        const ouraClient = await createOuraClientWithD1(db);
+        if (ouraClient) {
+          ouraData = await ouraClient.getAllData(start, end);
+        }
       }
+      // Fallback to env token
+      if (!ouraData && process.env.OURA_ACCESS_TOKEN) {
+        const ouraClient = new OuraClient(process.env.OURA_ACCESS_TOKEN);
+        ouraData = await ouraClient.getAllData(start, end);
+      }
+    } catch (error) {
+      console.error('Oura API error:', error);
     }
 
-    if (whoopToken) {
-      try {
-        const whoopClient = new WhoopClient(whoopToken);
-        whoopData = await whoopClient.getAllData(start, end);
-      } catch (error) {
-        console.error('Whoop API error:', error);
+    // Try to get Whoop data - first from D1, then from env
+    try {
+      if (db) {
+        const whoopClient = await createWhoopClientWithD1(db);
+        if (whoopClient) {
+          whoopData = await whoopClient.getAllData(start, end);
+        }
       }
+      // Fallback to env token
+      if (!whoopData && process.env.WHOOP_ACCESS_TOKEN) {
+        const whoopClient = new WhoopClient(process.env.WHOOP_ACCESS_TOKEN);
+        whoopData = await whoopClient.getAllData(start, end);
+      }
+    } catch (error) {
+      console.error('Whoop API error:', error);
     }
 
     if (!ouraData && !whoopData) {
@@ -42,7 +65,7 @@ export async function GET(request: NextRequest) {
         success: true,
         data: getDemoData(),
         sources: { oura: false, whoop: false },
-        message: 'Using demo data. Configure OURA_ACCESS_TOKEN or WHOOP_ACCESS_TOKEN.',
+        message: 'Using demo data. Connect Oura or Whoop to see real data.',
       });
     }
 
