@@ -1,14 +1,10 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-
 export default function UserMenu() {
-  const router = useRouter();
-
-  const handleLogout = async () => {
-    await fetch("/api/logout", { method: "POST" });
-    router.push("/login");
-    router.refresh();
+  // Cloudflare Access handles authentication
+  // Logout via Cloudflare Access logout endpoint
+  const handleLogout = () => {
+    window.location.href = "/cdn-cgi/access/logout";
   };
 
   return (
