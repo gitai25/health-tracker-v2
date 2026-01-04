@@ -127,19 +127,23 @@ export function aggregateDailyData(
   const kilojoule = whoopCycle?.score?.kilojoule ?? null;
 
   // MET-minutes calculation:
-  // - Oura: sum of high, medium, low activity MET-minutes
-  // - Whoop: convert kilojoules to MET-minutes
-  //   Formula calibrated to match v1 weekly ranges (900-1600)
-  //   Daily MET-min ≈ kilojoule / 80
-  //   e.g., 12000 kJ → 150 MET-min/day → 1050/week
+  // Priority: Whoop kilojoule → Oura MET-minutes
+  // Whoop formula (for 72kg person):
+  //   BMR = 72kg × 24hr × 1kcal/kg/hr = 1728 kcal = 7230 kJ
+  //   Active kJ = Total kJ - BMR
+  //   MET-min = Active kJ / 5 (where 1 MET-min ≈ 5 kJ for 72kg)
+  const BMR_KJ = 7230;
   let met_minutes: number | null = null;
-  if (ouraActivity) {
+  if (kilojoule !== null) {
+    // Use Whoop: (kJ - BMR) / 5
+    const activeKj = Math.max(0, kilojoule - BMR_KJ);
+    met_minutes = Math.round(activeKj / 5);
+  } else if (ouraActivity) {
+    // Fallback to Oura
     met_minutes =
       (ouraActivity.high_activity_met_minutes ?? 0) +
       (ouraActivity.medium_activity_met_minutes ?? 0) +
       (ouraActivity.low_activity_met_minutes ?? 0);
-  } else if (kilojoule !== null) {
-    met_minutes = Math.round(kilojoule / 80);
   }
 
   // Determine zone based on MET-minutes, recovery, and strain
