@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OuraClient, createOuraClientWithD1 } from '@/lib/oura-client';
 import { WhoopClient, createWhoopClientWithD1 } from '@/lib/whoop-client';
-import { processHealthData } from '@/lib/data-aggregator';
+import { processHealthData, generateDailyData } from '@/lib/data-aggregator';
 import { getDateRange } from '@/lib/utils';
+import { D1Client } from '@/lib/d1-client';
 import type { D1Database } from '@/lib/d1-client';
 
 export const runtime = 'edge';
@@ -69,6 +70,24 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Generate daily data and save to D1
+    let savedCount = 0;
+    if (db) {
+      try {
+        const dailyData = generateDailyData(ouraData, whoopData, start, end);
+        // Filter out days with no data
+        const validDays = dailyData.filter(
+          (d) => d.oura || d.whoop
+        );
+        if (validDays.length > 0) {
+          const d1Client = new D1Client(db);
+          savedCount = await d1Client.saveDailyRecords(validDays);
+        }
+      } catch (e) {
+        console.error('Failed to save daily data to D1:', e);
+      }
+    }
+
     const weeklyData = processHealthData(ouraData, whoopData, start, end);
 
     return NextResponse.json({
@@ -78,6 +97,7 @@ export async function GET(request: NextRequest) {
         oura: !!ouraData,
         whoop: !!whoopData,
       },
+      saved: savedCount,
     });
   } catch (error) {
     console.error('Health API error:', error);

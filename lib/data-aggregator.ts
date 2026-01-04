@@ -263,6 +263,56 @@ export function generateDateRange(startDate: string, endDate: string): string[] 
   return dates;
 }
 
+// Generate daily health data from API responses
+export function generateDailyData(
+  ouraData: {
+    readiness: OuraReadiness[];
+    sleep: OuraSleep[];
+    activity: OuraActivity[];
+  } | null,
+  whoopData: {
+    recovery: WhoopRecovery[];
+    cycles: WhoopCycle[];
+    sleep: WhoopSleep[];
+  } | null,
+  startDate: string,
+  endDate: string
+): DailyHealthData[] {
+  const ouraReadinessMap = ouraData
+    ? groupByDate(ouraData.readiness, 'day')
+    : new Map();
+  const ouraSleepMap = ouraData
+    ? groupByDate(ouraData.sleep, 'day')
+    : new Map();
+  const ouraActivityMap = ouraData
+    ? groupByDate(ouraData.activity, 'day')
+    : new Map();
+
+  const whoopRecoveryMap = whoopData
+    ? new Map(whoopData.recovery.map((r) => [r.created_at.split('T')[0], r]))
+    : new Map();
+  const whoopCycleMap = whoopData
+    ? new Map(whoopData.cycles.map((c) => [c.start.split('T')[0], c]))
+    : new Map();
+  const whoopSleepMap = whoopData
+    ? new Map(whoopData.sleep.map((s) => [s.start.split('T')[0], s]))
+    : new Map();
+
+  const dates = generateDateRange(startDate, endDate);
+
+  return dates.map((date) =>
+    aggregateDailyData(
+      date,
+      ouraReadinessMap.get(date),
+      ouraSleepMap.get(date),
+      ouraActivityMap.get(date),
+      whoopRecoveryMap.get(date),
+      whoopCycleMap.get(date),
+      whoopSleepMap.get(date)
+    )
+  );
+}
+
 // Process all data from both APIs into weekly summaries
 export function processHealthData(
   ouraData: {
