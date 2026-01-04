@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+    const credentials = btoa(`${clientId}:${clientSecret}`);
 
     const response = await fetch(WHOOP_TOKEN_URL, {
       method: 'POST',
