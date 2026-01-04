@@ -2,59 +2,48 @@ import { NextRequest, NextResponse } from 'next/server';
 import { OuraClient } from '@/lib/oura-client';
 import { WhoopClient } from '@/lib/whoop-client';
 import { processHealthData } from '@/lib/data-aggregator';
-import { D1Client, dbRecordToWeeklyData, type D1Database } from '@/lib/d1-client';
+import { loadLocalData, processLocalData, checkDataSources } from '@/lib/local-data';
 import { getDateRange } from '@/lib/utils';
+import { requireAdmin } from '@/lib/admin-auth';
 
-export const runtime = 'edge';
-
-// Get D1 database from request context (Cloudflare Pages)
-function getD1(request: NextRequest): D1Database | null {
-  // @ts-expect-error - Cloudflare env bindings
-  const env = request.cf?.env || globalThis.env;
-  return env?.DB || null;
-}
+// Use nodejs runtime for local file access
+export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
   try {
+    const authResponse = requireAdmin(request);
+    if (authResponse) return authResponse;
+
     const searchParams = request.nextUrl.searchParams;
     const weeks = parseInt(searchParams.get('weeks') || '12', 10);
-    const useCache = searchParams.get('cache') !== 'false';
+    const source = searchParams.get('source') || 'auto'; // 'auto', 'local', 'api'
 
-    const { start, end } = getDateRange(weeks);
+    // Try local data first (from sync script)
+    if (source === 'local' || source === 'auto') {
+      const localData = loadLocalData();
+      if (localData && localData.daily.length > 0) {
+        const weeklyData = processLocalData(localData);
+        const sources = checkDataSources(localData);
 
-    // Try to get data from D1 first (if available and cache enabled)
-    const db = getD1(request);
-    if (db && useCache) {
-      try {
-        const d1 = new D1Client(db);
-        const dbRecords = await d1.getWeeklyRecords(weeks);
-
-        if (dbRecords.length > 0) {
-          return NextResponse.json({
-            success: true,
-            data: dbRecords.map(dbRecordToWeeklyData),
-            sources: { oura: true, whoop: true, cached: true },
-            message: 'Data from database cache',
-          });
-        }
-      } catch (error) {
-        console.error('D1 read error:', error);
-        // Fall through to API fetch
+        return NextResponse.json({
+          success: true,
+          data: weeklyData.slice(0, weeks),
+          sources: { ...sources, cached: true },
+          lastSync: localData.last_sync,
+          message: `Data from local cache (last sync: ${new Date(localData.last_sync).toLocaleString()})`,
+        });
       }
     }
 
-    // Get tokens from environment or request headers
-    const ouraToken =
-      process.env.OURA_ACCESS_TOKEN ||
-      request.headers.get('X-Oura-Token');
-    const whoopToken =
-      process.env.WHOOP_ACCESS_TOKEN ||
-      request.headers.get('X-Whoop-Token');
+    // Fall back to API if no local data or source=api
+    const { start, end } = getDateRange(weeks);
+
+    const ouraToken = process.env.OURA_ACCESS_TOKEN;
+    const whoopToken = process.env.WHOOP_ACCESS_TOKEN;
 
     let ouraData = null;
     let whoopData = null;
 
-    // Fetch Oura data if token available
     if (ouraToken) {
       try {
         const ouraClient = new OuraClient(ouraToken);
@@ -64,7 +53,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Fetch Whoop data if token available
     if (whoopToken) {
       try {
         const whoopClient = new WhoopClient(whoopToken);
@@ -74,7 +62,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // If no data sources available, return demo data
     if (!ouraData && !whoopData) {
       return NextResponse.json({
         success: true,
@@ -84,7 +71,6 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Process and aggregate data
     const weeklyData = processHealthData(ouraData, whoopData, start, end);
 
     return NextResponse.json({
@@ -107,7 +93,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Demo data for when no APIs are connected
+// Demo data
 function getDemoData() {
   const weeks = [];
   const now = new Date();
@@ -123,13 +109,12 @@ function getDemoData() {
         (7 * 24 * 60 * 60 * 1000)
     );
 
-    // Generate random but realistic data
     const readiness = Math.floor(Math.random() * 30) + 60;
     const recovery = Math.floor(Math.random() * 40) + 40;
     const sleep = Math.floor(Math.random() * 25) + 65;
     const hrv = Math.floor(Math.random() * 40) + 30;
     const steps = Math.floor(Math.random() * 5000) + 6000;
-    const metMin = Math.floor(Math.random() * 400) + 900; // 900-1300 MET-min
+    const metMin = Math.floor(Math.random() * 400) + 900;
 
     let zone = '最优区';
     if (metMin > 1400) zone = '高负荷';
@@ -138,19 +123,24 @@ function getDemoData() {
     else if (recovery > 67 && metMin >= 1000 && metMin <= 1100) zone = '黄金锚点';
     else if (recovery < 34) zone = '恢复稳态';
 
+    // Current week shows partial data
+    const isCurrentWeek = i === 0;
+    const daysInWeek = isCurrentWeek ? new Date().getDay() || 7 : 7;
+
     weeks.push({
-      week: `Week ${weekNum}`,
+      week: isCurrentWeek ? `Week ${weekNum} (${daysInWeek}/7 days)` : `Week ${weekNum}`,
       date_range: `${(weekStart.getMonth() + 1).toString().padStart(2, '0')}/${weekStart.getDate().toString().padStart(2, '0')} - ${(weekEnd.getMonth() + 1).toString().padStart(2, '0')}/${weekEnd.getDate().toString().padStart(2, '0')}`,
       start_date: weekStart.toISOString().split('T')[0],
       end_date: weekEnd.toISOString().split('T')[0],
       daily_data: [],
+      days_count: daysInWeek,
       avg_readiness: readiness,
       avg_recovery: recovery,
       avg_sleep: sleep,
       avg_hrv: hrv,
       avg_steps: steps,
       total_strain: null,
-      total_met_minutes: metMin * 7, // Weekly total
+      total_met_minutes: metMin * daysInWeek,
       zone,
       trend: ['↑', '→', '↓'][Math.floor(Math.random() * 3)],
       health_status: '健康',

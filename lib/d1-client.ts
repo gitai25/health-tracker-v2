@@ -340,6 +340,7 @@ export function dbRecordToWeeklyData(record: WeeklyRecord): WeeklyHealthData {
     avg_hrv: record.avg_hrv,
     avg_steps: record.avg_steps,
     total_strain: record.total_strain,
+    total_met_minutes: null, // TODO: Add to DB schema
     zone: record.zone,
     trend: record.trend,
     health_status: record.health_status,

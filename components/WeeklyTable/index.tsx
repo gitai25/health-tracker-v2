@@ -6,6 +6,7 @@ import SummaryCards from "./SummaryCards";
 import TableRow from "./TableRow";
 import Legend from "./Legend";
 import DataSources from "./DataSources";
+import UserMenu from "@/components/UserMenu";
 import type { WeeklyHealthData } from "@/lib/types";
 
 interface WeeklyTableProps {
@@ -17,11 +18,14 @@ export default function WeeklyTable({ initialData = [] }: WeeklyTableProps) {
   const [loading, setLoading] = useState(!initialData.length);
   const [error, setError] = useState<string | null>(null);
   const [sources, setSources] = useState({ oura: false, whoop: false, cached: false });
+  const adminToken = process.env.NEXT_PUBLIC_ADMIN_TOKEN;
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/health?weeks=12");
+      const headers: HeadersInit = {};
+      if (adminToken) headers["x-admin-token"] = adminToken;
+      const response = await fetch("/api/health?weeks=16", { headers });
       const result = await response.json();
 
       if (result.success) {
@@ -40,7 +44,8 @@ export default function WeeklyTable({ initialData = [] }: WeeklyTableProps) {
   useEffect(() => {
     if (initialData.length) return;
     fetchData();
-  }, [initialData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const dateRange = useMemo(() => {
     if (data.length === 0) return "";
@@ -90,13 +95,19 @@ export default function WeeklyTable({ initialData = [] }: WeeklyTableProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
       <div className="max-w-7xl mx-auto space-y-6">
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold text-slate-800">
-            Health Tracker - Readiness & Recovery
-          </h1>
-          <p className="text-slate-500">
-            Oura Readiness + Whoop Recovery | {dateRange || "No data"}
-          </p>
+        {/* Header with User Menu */}
+        <div className="flex justify-between items-start">
+          <div className="flex-1 text-center space-y-2">
+            <h1 className="text-3xl font-bold text-slate-800">
+              Health Tracker - Readiness & Recovery
+            </h1>
+            <p className="text-slate-500">
+              Oura Readiness + Whoop Recovery | {dateRange || "No data"}
+            </p>
+          </div>
+          <div className="absolute top-4 right-4">
+            <UserMenu />
+          </div>
         </div>
 
         <DataSources
@@ -125,7 +136,9 @@ export default function WeeklyTable({ initialData = [] }: WeeklyTableProps) {
                     <th className="px-3 py-3 text-center font-semibold">
                       <span className="text-green-300">Recovery</span>
                     </th>
-                    <th className="px-3 py-3 text-center font-semibold">HRV</th>
+                    <th className="px-3 py-3 text-center font-semibold">
+                      HRV <span className="text-xs opacity-70">(ms)</span>
+                    </th>
                     <th className="px-3 py-3 text-center font-semibold">Sleep</th>
                     <th className="px-3 py-3 text-center font-semibold">Steps</th>
                     <th className="px-3 py-3 text-center font-semibold">Zone</th>

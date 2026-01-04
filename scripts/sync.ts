@@ -1,12 +1,19 @@
-import { NextRequest, NextResponse } from 'next/server';
+#!/usr/bin/env npx ts-node
+
+/**
+ * Daily sync script for health data
+ * Run via cron: 0 9 * * * cd /Users/ai2025/health-tracker-v2 && npx ts-node scripts/sync.ts
+ */
+
 import * as fs from 'fs';
 import * as path from 'path';
-import { requireAdmin } from '@/lib/admin-auth';
+import { fileURLToPath } from 'url';
 
-export const runtime = 'nodejs';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const DATA_FILE = path.join(process.cwd(), 'data/health-data.json');
-const ENV_FILE = path.join(process.cwd(), '.env');
+const DATA_FILE = path.join(__dirname, '../data/health-data.json');
+const ENV_FILE = path.join(__dirname, '../.env');
 
 interface DailyData {
   date: string;
@@ -34,6 +41,8 @@ interface HealthData {
   daily: DailyData[];
 }
 
+// ============ Token Manager ============
+
 function loadEnv(): Record<string, string> {
   const env: Record<string, string> = {};
   if (fs.existsSync(ENV_FILE)) {
@@ -50,23 +59,30 @@ function loadEnv(): Record<string, string> {
 
 function saveToken(key: string, value: string): void {
   let content = fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf-8') : '';
+
   const regex = new RegExp(`^${key}=.*$`, 'm');
   if (regex.test(content)) {
     content = content.replace(regex, `${key}=${value}`);
   } else {
     content = content.trim() + `\n${key}=${value}`;
   }
+
   fs.writeFileSync(ENV_FILE, content + '\n');
 }
 
-async function refreshOuraToken(env: Record<string, string>): Promise<string | null> {
+async function refreshOuraToken(): Promise<string | null> {
+  const env = loadEnv();
   const refreshToken = env.OURA_REFRESH_TOKEN;
   const clientId = env.OURA_CLIENT_ID;
   const clientSecret = env.OURA_CLIENT_SECRET;
 
-  if (!refreshToken || !clientId || !clientSecret) return null;
+  if (!refreshToken || !clientId || !clientSecret) {
+    console.log('Oura refresh token or credentials not configured');
+    return null;
+  }
 
   try {
+    console.log('Refreshing Oura token...');
     const response = await fetch('https://api.ouraring.com/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -78,27 +94,39 @@ async function refreshOuraToken(env: Record<string, string>): Promise<string | n
       }),
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Oura token refresh failed:', error);
+      return null;
+    }
 
     const tokens = await response.json();
     saveToken('OURA_ACCESS_TOKEN', tokens.access_token);
     if (tokens.refresh_token) {
       saveToken('OURA_REFRESH_TOKEN', tokens.refresh_token);
     }
+
+    console.log('Oura token refreshed successfully');
     return tokens.access_token;
-  } catch {
+  } catch (error) {
+    console.error('Oura token refresh error:', error);
     return null;
   }
 }
 
-async function refreshWhoopToken(env: Record<string, string>): Promise<string | null> {
+async function refreshWhoopToken(): Promise<string | null> {
+  const env = loadEnv();
   const refreshToken = env.WHOOP_REFRESH_TOKEN;
   const clientId = env.WHOOP_CLIENT_ID;
   const clientSecret = env.WHOOP_CLIENT_SECRET;
 
-  if (!refreshToken || !clientId || !clientSecret) return null;
+  if (!refreshToken || !clientId || !clientSecret) {
+    console.log('Whoop refresh token or credentials not configured');
+    return null;
+  }
 
   try {
+    console.log('Refreshing Whoop token...');
     const response = await fetch('https://api.prod.whoop.com/oauth/oauth2/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -110,61 +138,87 @@ async function refreshWhoopToken(env: Record<string, string>): Promise<string | 
       }),
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Whoop token refresh failed:', error);
+      return null;
+    }
 
     const tokens = await response.json();
     saveToken('WHOOP_ACCESS_TOKEN', tokens.access_token);
     if (tokens.refresh_token) {
       saveToken('WHOOP_REFRESH_TOKEN', tokens.refresh_token);
     }
+
+    console.log('Whoop token refreshed successfully');
     return tokens.access_token;
-  } catch {
+  } catch (error) {
+    console.error('Whoop token refresh error:', error);
     return null;
   }
 }
 
-async function getValidToken(type: 'oura' | 'whoop', env: Record<string, string>): Promise<string | null> {
-  const tokenKey = type === 'oura' ? 'OURA_ACCESS_TOKEN' : 'WHOOP_ACCESS_TOKEN';
-  let token = env[tokenKey];
+async function getOuraToken(): Promise<string | null> {
+  const env = loadEnv();
+  const token = env.OURA_ACCESS_TOKEN;
 
   if (!token) {
-    return type === 'oura' ? refreshOuraToken(env) : refreshWhoopToken(env);
+    return refreshOuraToken();
   }
 
-  // Test token validity
-  const testUrl = type === 'oura'
-    ? 'https://api.ouraring.com/v2/usercollection/personal_info'
-    : 'https://api.prod.whoop.com/developer/v2/cycle?limit=1';
-
+  // Test if token is valid
   try {
-    const response = await fetch(testUrl, {
+    const response = await fetch('https://api.ouraring.com/v2/usercollection/personal_info', {
       headers: { Authorization: `Bearer ${token}` },
     });
 
     if (response.status === 401) {
-      return type === 'oura' ? refreshOuraToken(env) : refreshWhoopToken(env);
+      return refreshOuraToken();
     }
 
     return token;
   } catch {
-    return type === 'oura' ? refreshOuraToken(env) : refreshWhoopToken(env);
+    return refreshOuraToken();
   }
 }
 
-function getDateRange(days: number = 90): { start: string; end: string } {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - days);
-  return {
-    start: start.toISOString().split('T')[0],
-    end: end.toISOString().split('T')[0],
-  };
+async function getWhoopToken(): Promise<string | null> {
+  const env = loadEnv();
+  const token = env.WHOOP_ACCESS_TOKEN;
+
+  if (!token) {
+    return refreshWhoopToken();
+  }
+
+  // Test if token is valid
+  try {
+    const response = await fetch('https://api.prod.whoop.com/developer/v1/cycle?limit=1', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (response.status === 401) {
+      return refreshWhoopToken();
+    }
+
+    return token;
+  } catch {
+    return refreshWhoopToken();
+  }
 }
 
-async function fetchOuraData(token: string, startDate: string, endDate: string): Promise<Map<string, DailyData['oura']>> {
+// ============ Data Fetching ============
+
+async function fetchOuraData(startDate: string, endDate: string): Promise<Map<string, DailyData['oura']>> {
+  const token = await getOuraToken();
+  if (!token) {
+    console.log('No Oura access token available');
+    return new Map();
+  }
+
   const results = new Map<string, DailyData['oura']>();
 
   try {
+    // Fetch all data in parallel
     const [readinessRes, activityRes, sleepRes, sleepDetailRes] = await Promise.all([
       fetch(`https://api.ouraring.com/v2/usercollection/daily_readiness?start_date=${startDate}&end_date=${endDate}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -175,7 +229,7 @@ async function fetchOuraData(token: string, startDate: string, endDate: string):
       fetch(`https://api.ouraring.com/v2/usercollection/daily_sleep?start_date=${startDate}&end_date=${endDate}`, {
         headers: { Authorization: `Bearer ${token}` },
       }),
-      // Get detailed sleep data which includes HRV
+      // Get detailed sleep data which includes actual HRV in ms
       fetch(`https://api.ouraring.com/v2/usercollection/sleep?start_date=${startDate}&end_date=${endDate}`, {
         headers: { Authorization: `Bearer ${token}` },
       }),
@@ -192,12 +246,12 @@ async function fetchOuraData(token: string, startDate: string, endDate: string):
     const hrvMap = new Map<string, number>();
     for (const item of sleepDetailData.data || []) {
       const day = item.day;
-      // average_hrv is in milliseconds
       if (item.average_hrv && day) {
         hrvMap.set(day, Math.round(item.average_hrv));
       }
     }
 
+    // Process readiness
     for (const item of readinessData.data || []) {
       results.set(item.day, {
         readiness_score: item.score,
@@ -209,6 +263,7 @@ async function fetchOuraData(token: string, startDate: string, endDate: string):
       });
     }
 
+    // Process activity
     for (const item of activityData.data || []) {
       const existing = results.get(item.day) || {
         readiness_score: null,
@@ -219,14 +274,16 @@ async function fetchOuraData(token: string, startDate: string, endDate: string):
         hrv: hrvMap.get(item.day) ?? null,
       };
       existing.activity_score = item.score;
+      // Only count MVPA (Moderate-Vigorous Physical Activity)
+      // Exclude low_activity which is just light movement (standing, slow walking)
       existing.met_minutes =
         (item.high_activity_met_minutes || 0) +
-        (item.medium_activity_met_minutes || 0) +
-        (item.low_activity_met_minutes || 0);
+        (item.medium_activity_met_minutes || 0);
       existing.steps = item.steps;
       results.set(item.day, existing);
     }
 
+    // Process sleep
     for (const item of sleepData.data || []) {
       const existing = results.get(item.day) || {
         readiness_score: null,
@@ -242,6 +299,8 @@ async function fetchOuraData(token: string, startDate: string, endDate: string):
       }
       results.set(item.day, existing);
     }
+
+    console.log(`Fetched ${results.size} days of Oura data`);
   } catch (error) {
     console.error('Oura fetch error:', error);
   }
@@ -249,18 +308,23 @@ async function fetchOuraData(token: string, startDate: string, endDate: string):
   return results;
 }
 
-async function fetchWhoopData(token: string, startDate: string, endDate: string): Promise<Map<string, DailyData['whoop']>> {
+async function fetchWhoopData(startDate: string, endDate: string): Promise<Map<string, DailyData['whoop']>> {
+  const token = await getWhoopToken();
+  if (!token) {
+    console.log('No Whoop access token available');
+    return new Map();
+  }
+
   const results = new Map<string, DailyData['whoop']>();
   const startDateObj = new Date(startDate);
 
   try {
+    // Use v2 API - fetch cycles and recovery separately then merge
     const allCycles: any[] = [];
     const allRecoveries: any[] = [];
 
+    // Fetch cycles with pagination (v2 API)
     let nextToken: string | null = null;
-    const seenCycleTokens = new Set<string>();
-    let cyclePages = 0;
-
     while (true) {
       const cycleUrl: string = nextToken
         ? `https://api.prod.whoop.com/developer/v2/cycle?nextToken=${encodeURIComponent(nextToken)}`
@@ -269,32 +333,24 @@ async function fetchWhoopData(token: string, startDate: string, endDate: string)
       const cyclesRes: Response = await fetch(cycleUrl, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
-      if (!cyclesRes.ok) break;
-
-      const cyclesData = await cyclesRes.json();
+      const cyclesData: any = await cyclesRes.json();
 
       if (cyclesData.records) {
         allCycles.push(...cyclesData.records);
       }
 
+      // Stop if we've gone past the start date
       const lastRecord = cyclesData.records?.[cyclesData.records.length - 1];
       if (lastRecord && new Date(lastRecord.start) < startDateObj) {
         break;
       }
 
-      const newToken = cyclesData.next_token || null;
-      if (!newToken || seenCycleTokens.has(newToken)) break;
-      seenCycleTokens.add(newToken);
-      nextToken = newToken;
-      cyclePages += 1;
-      if (cyclePages >= 200) break;
+      nextToken = cyclesData.next_token || null;
+      if (!nextToken) break;
     }
 
+    // Fetch recovery data (v2 API - returns all recoveries)
     nextToken = null;
-    const seenRecoveryTokens = new Set<string>();
-    let recoveryPages = 0;
-
     while (true) {
       const recoveryUrl: string = nextToken
         ? `https://api.prod.whoop.com/developer/v2/recovery?nextToken=${encodeURIComponent(nextToken)}`
@@ -306,25 +362,23 @@ async function fetchWhoopData(token: string, startDate: string, endDate: string)
 
       if (!recoveryRes.ok) break;
 
-      const recoveryData = await recoveryRes.json();
+      const recoveryData: any = await recoveryRes.json();
 
       if (recoveryData.records) {
         allRecoveries.push(...recoveryData.records);
       }
 
+      // Stop if we've gone past the start date
       const lastRecord = recoveryData.records?.[recoveryData.records.length - 1];
       if (lastRecord && new Date(lastRecord.created_at) < startDateObj) {
         break;
       }
 
-      const newToken = recoveryData.next_token || null;
-      if (!newToken || seenRecoveryTokens.has(newToken)) break;
-      seenRecoveryTokens.add(newToken);
-      nextToken = newToken;
-      recoveryPages += 1;
-      if (recoveryPages >= 200) break;
+      nextToken = recoveryData.next_token || null;
+      if (!nextToken) break;
     }
 
+    // Build recovery map by cycle_id
     const recoveryMap = new Map<number, any>();
     for (const rec of allRecoveries) {
       if (rec.cycle_id) {
@@ -332,10 +386,16 @@ async function fetchWhoopData(token: string, startDate: string, endDate: string)
       }
     }
 
+    // Merge cycles with recovery data
+    // Recovery is shifted by 1 day: cycle started on day N has recovery for waking up on day N+1
     for (const cycle of allCycles) {
       const cycleDate = cycle.start?.split('T')[0];
       if (!cycleDate) continue;
 
+      const kilojoule = cycle.score?.kilojoule ?? null;
+      const recovery = recoveryMap.get(cycle.id);
+
+      // Strain and kilojoule stay on cycle date
       if (cycleDate >= startDate && cycleDate <= endDate) {
         const existing = results.get(cycleDate) || {
           recovery_score: null,
@@ -347,11 +407,11 @@ async function fetchWhoopData(token: string, startDate: string, endDate: string)
           met_minutes: null,
         };
         existing.strain = cycle.score?.strain ?? null;
-        existing.kilojoule = cycle.score?.kilojoule ?? null;
+        existing.kilojoule = kilojoule;
         results.set(cycleDate, existing);
       }
 
-      const recovery = recoveryMap.get(cycle.id);
+      // Recovery shifts to next day (wake-up date)
       if (recovery) {
         const nextDay = new Date(cycleDate);
         nextDay.setDate(nextDay.getDate() + 1);
@@ -374,12 +434,16 @@ async function fetchWhoopData(token: string, startDate: string, endDate: string)
         }
       }
     }
+
+    console.log(`Fetched ${results.size} days of Whoop data (v2 API)`);
   } catch (error) {
     console.error('Whoop fetch error:', error);
   }
 
   return results;
 }
+
+// ============ Data Storage ============
 
 function loadData(): HealthData {
   try {
@@ -398,104 +462,72 @@ function saveData(data: HealthData) {
     fs.mkdirSync(dir, { recursive: true });
   }
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  console.log(`Saved data to ${DATA_FILE}`);
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const authResponse = requireAdmin(request);
-    if (authResponse) return authResponse;
+function getDateRange(days: number = 90): { start: string; end: string } {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - days);
 
-    const body = await request.json().catch(() => ({}));
-    const weeks = body.weeks || 12;
+  return {
+    start: start.toISOString().split('T')[0],
+    end: end.toISOString().split('T')[0],
+  };
+}
 
-    const { start, end } = getDateRange(weeks * 7);
-    const env = loadEnv();
+// ============ Main ============
 
-    const results = { oura: 0, whoop: 0, total: 0 };
+async function sync() {
+  console.log('Starting health data sync...');
+  console.log(`Time: ${new Date().toISOString()}`);
 
-    // Get valid tokens (auto-refresh if needed)
-    const [ouraToken, whoopToken] = await Promise.all([
-      getValidToken('oura', env),
-      getValidToken('whoop', env),
-    ]);
+  const { start, end } = getDateRange(90);
+  console.log(`Date range: ${start} to ${end}`);
 
-    // Fetch data
-    const [ouraData, whoopData] = await Promise.all([
-      ouraToken ? fetchOuraData(ouraToken, start, end) : new Map(),
-      whoopToken ? fetchWhoopData(whoopToken, start, end) : new Map(),
-    ]);
+  // Fetch data from both sources
+  const [ouraData, whoopData] = await Promise.all([
+    fetchOuraData(start, end),
+    fetchWhoopData(start, end),
+  ]);
 
-    results.oura = ouraData.size;
-    results.whoop = whoopData.size;
+  // Load existing data
+  const existingData = loadData();
+  const dailyMap = new Map<string, DailyData>();
 
-    // Load existing data
-    const existingData = loadData();
-    const dailyMap = new Map<string, DailyData>();
-
-    for (const item of existingData.daily) {
-      dailyMap.set(item.date, item);
-    }
-
-    // Merge new data
-    for (const [date, oura] of ouraData) {
-      const existing = dailyMap.get(date) || { date } as DailyData;
-      existing.oura = oura;
-      dailyMap.set(date, existing);
-    }
-
-    for (const [date, whoop] of whoopData) {
-      const existing = dailyMap.get(date) || { date } as DailyData;
-      existing.whoop = whoop;
-      dailyMap.set(date, existing);
-    }
-
-    const daily = Array.from(dailyMap.values()).sort(
-      (a, b) => a.date.localeCompare(b.date)
-    );
-
-    results.total = daily.length;
-
-    // Save
-    const newData: HealthData = {
-      last_sync: new Date().toISOString(),
-      daily,
-    };
-    saveData(newData);
-
-    return NextResponse.json({
-      success: true,
-      synced: results,
-      dateRange: { start, end },
-      message: `Synced ${results.oura} days from Oura, ${results.whoop} days from Whoop`,
-    });
-  } catch (error) {
-    console.error('Sync error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Sync failed',
-      },
-      { status: 500 }
-    );
+  // Add existing data to map
+  for (const item of existingData.daily) {
+    dailyMap.set(item.date, item);
   }
-}
 
-export async function GET(request: NextRequest) {
-  try {
-    const authResponse = requireAdmin(request);
-    if (authResponse) return authResponse;
-
-    const data = loadData();
-
-    return NextResponse.json({
-      configured: true,
-      lastSync: data.last_sync || null,
-      totalDays: data.daily.length,
-    });
-  } catch (error) {
-    return NextResponse.json({
-      configured: false,
-      error: error instanceof Error ? error.message : 'Failed to get sync status',
-    });
+  // Merge new Oura data
+  for (const [date, oura] of ouraData) {
+    const existing = dailyMap.get(date) || { date };
+    existing.oura = oura;
+    dailyMap.set(date, existing);
   }
+
+  // Merge new Whoop data
+  for (const [date, whoop] of whoopData) {
+    const existing = dailyMap.get(date) || { date };
+    existing.whoop = whoop;
+    dailyMap.set(date, existing);
+  }
+
+  // Sort by date
+  const daily = Array.from(dailyMap.values()).sort(
+    (a, b) => a.date.localeCompare(b.date)
+  );
+
+  // Save
+  const newData: HealthData = {
+    last_sync: new Date().toISOString(),
+    daily,
+  };
+  saveData(newData);
+
+  console.log(`Sync complete. Total ${daily.length} days of data.`);
 }
+
+// Run
+sync().catch(console.error);

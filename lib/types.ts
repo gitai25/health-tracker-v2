@@ -168,12 +168,15 @@ export interface WeeklyHealthData {
   start_date: string;
   end_date: string;
   daily_data: DailyHealthData[];
+  days_count?: number; // Number of days with data (for partial weeks)
 
   // Weekly Averages
   avg_readiness: number | null;
   avg_recovery: number | null;
   avg_sleep: number | null;
   avg_hrv: number | null;
+  avg_hrv_oura?: number | null;  // Oura HRV (ms)
+  avg_hrv_whoop?: number | null; // Whoop HRV (ms)
   avg_steps: number | null;
   total_strain: number | null;
   total_met_minutes: number | null; // Weekly total MET-minutes
@@ -182,6 +185,10 @@ export interface WeeklyHealthData {
   zone: string;
   trend: string;
   health_status: string;
+
+  // Display type
+  row_type?: 'week' | 'week_cumulative' | 'day';
+  cumulative_met_minutes?: number | null; // Running total for daily rows
 }
 
 // API Response Types

@@ -11,7 +11,53 @@ binding = "DB"
 database_name = "health-tracker-db"
 database_id = "YOUR_DATABASE_ID_HERE"
 
+# KV Namespace for session storage (optional, for distributed sessions)
+# Run: wrangler kv:namespace create "SESSIONS"
+# [[kv_namespaces]]
+# binding = "SESSIONS"
+# id = "YOUR_KV_NAMESPACE_ID_HERE"
+
 [vars]
-# Set these in Cloudflare Dashboard > Pages > Settings > Environment variables
-# OURA_ACCESS_TOKEN = ""
-# WHOOP_ACCESS_TOKEN = ""
+# Non-sensitive environment variables
+# NODE_ENV = "production"
+
+# ============================================================
+# IMPORTANT: SECRETS CONFIGURATION
+# ============================================================
+# DO NOT put sensitive values in this file!
+# All secrets must be set via Cloudflare Dashboard or wrangler CLI:
+#
+# Required secrets (set in Cloudflare Dashboard > Pages > Settings > Environment variables):
+#
+# 1. Google OAuth (get from https://console.cloud.google.com/apis/credentials)
+#    - GOOGLE_CLIENT_ID
+#    - GOOGLE_CLIENT_SECRET
+#
+# 2. NextAuth (generate with: openssl rand -base64 32)
+#    - AUTH_SECRET
+#
+# 3. Access Control
+#    - ALLOWED_EMAILS (comma-separated list of authorized emails)
+#    - ALLOWED_DOMAINS (comma-separated list of authorized domains, e.g., "company.com")
+#
+# 4. Oura API (from https://cloud.ouraring.com/personal-access-tokens)
+#    - OURA_ACCESS_TOKEN
+#    - OURA_REFRESH_TOKEN (for OAuth flow)
+#    - OURA_CLIENT_ID (for OAuth flow)
+#    - OURA_CLIENT_SECRET (for OAuth flow)
+#
+# 5. Whoop API (from https://developer.whoop.com)
+#    - WHOOP_ACCESS_TOKEN
+#    - WHOOP_REFRESH_TOKEN (for OAuth flow)
+#    - WHOOP_CLIENT_ID (for OAuth flow)
+#    - WHOOP_CLIENT_SECRET (for OAuth flow)
+#
+# 6. Admin API Access (optional, for /api/sync endpoint)
+#    - ADMIN_TOKEN (generate with: openssl rand -hex 32)
+#
+# To set secrets via CLI:
+#   wrangler pages secret put GOOGLE_CLIENT_ID
+#   wrangler pages secret put GOOGLE_CLIENT_SECRET
+#   wrangler pages secret put AUTH_SECRET
+#   ... etc
+# ============================================================

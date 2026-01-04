@@ -13,6 +13,7 @@ interface DataSourcesProps {
 export default function DataSources({ oura, whoop, cached, onRefresh }: DataSourcesProps) {
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const adminToken = process.env.NEXT_PUBLIC_ADMIN_TOKEN;
 
   const connected = oura || whoop;
 
@@ -21,9 +22,11 @@ export default function DataSources({ oura, whoop, cached, onRefresh }: DataSour
     setSyncStatus(null);
 
     try {
+      const headers: HeadersInit = { "Content-Type": "application/json" };
+      if (adminToken) headers["x-admin-token"] = adminToken;
       const response = await fetch("/api/sync", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ weeks: 12 }),
       });
 

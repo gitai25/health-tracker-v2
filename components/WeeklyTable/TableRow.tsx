@@ -19,44 +19,83 @@ interface TableRowProps {
 }
 
 export default function TableRow({ row }: TableRowProps) {
-  // Calculate average daily MET-minutes for display
-  const avgDailyMetMin = row.total_met_minutes !== null && row.daily_data.length > 0
-    ? Math.round(row.total_met_minutes / row.daily_data.length)
+  const rowType = row.row_type || 'week';
+  const isDay = rowType === 'day';
+  const isCumulative = rowType === 'week_cumulative';
+  const daysCount = row.days_count || 7;
+
+  // For daily rows, show daily MET + cumulative in parentheses
+  // For week rows, show total
+  const metDisplay = isDay
+    ? row.total_met_minutes
     : row.total_met_minutes;
+  const cumulativeDisplay = isDay ? (row.cumulative_met_minutes ?? null) : null;
+
+  // Row styling based on type
+  const rowClasses = isDay
+    ? 'bg-slate-50/50 text-slate-600'
+    : isCumulative
+    ? 'bg-amber-50 font-medium'
+    : getRowStyle(row.total_strain, row.zone, row.health_status);
 
   return (
-    <tr
-      className={`${getRowStyle(row.total_strain, row.zone, row.health_status)} transition-colors hover:opacity-80`}
-    >
+    <tr className={`${rowClasses} transition-colors hover:opacity-80`}>
       <td className="px-3 py-2 font-medium text-slate-700 text-sm">
-        {row.week}
+        <div className="flex items-center gap-2">
+          <span className={isDay ? 'text-slate-500 text-xs' : ''}>
+            {row.week}
+          </span>
+          {isCumulative && (
+            <span className="px-1.5 py-0.5 text-xs bg-amber-200 text-amber-800 rounded font-semibold">
+              {daysCount}天累计
+            </span>
+          )}
+        </div>
       </td>
-      <td className="px-3 py-2 text-slate-600 text-sm">{row.date_range}</td>
+      <td className={`px-3 py-2 text-sm ${isDay ? 'text-slate-500' : 'text-slate-600'}`}>
+        {row.date_range}
+      </td>
+      <td className="px-3 py-2 text-center">
+        {isDay ? (
+          <div className="flex flex-col">
+            <span className="font-mono text-xs text-slate-500">
+              +{metDisplay ?? 0}
+            </span>
+            <span className={`font-mono font-bold text-sm ${getMetMinutesStyle(cumulativeDisplay)}`}>
+              {cumulativeDisplay ?? "-"}
+            </span>
+          </div>
+        ) : (
+          <span className={`font-mono font-bold text-sm ${getMetMinutesStyle(metDisplay)}`}>
+            {metDisplay ?? "-"}
+          </span>
+        )}
+      </td>
       <td className="px-3 py-2 text-center">
         <span
-          className={`font-mono font-bold text-sm ${getMetMinutesStyle(avgDailyMetMin)}`}
-        >
-          {avgDailyMetMin ?? "-"}
-        </span>
-      </td>
-      <td className="px-3 py-2 text-center">
-        <span
-          className={`font-mono font-bold text-sm ${getReadinessStyle(row.avg_readiness)}`}
+          className={`font-mono ${isDay ? 'text-sm' : 'font-bold text-sm'} ${getReadinessStyle(row.avg_readiness)}`}
         >
           {row.avg_readiness ?? "-"}
         </span>
       </td>
       <td className="px-3 py-2 text-center">
         <span
-          className={`font-mono font-bold text-sm ${getRecoveryStyle(row.avg_recovery)}`}
+          className={`font-mono ${isDay ? 'text-sm' : 'font-bold text-sm'} ${getRecoveryStyle(row.avg_recovery)}`}
         >
           {row.avg_recovery !== null ? `${row.avg_recovery}%` : "-"}
         </span>
       </td>
       <td className="px-3 py-2 text-center">
-        <span className={`font-mono text-sm ${getHrvStyle(row.avg_hrv)}`}>
-          {row.avg_hrv ?? "-"}
-        </span>
+        <div className="flex flex-col gap-0.5">
+          <span className={`font-mono text-sm ${getHrvStyle(row.avg_hrv_oura ?? null)}`}>
+            {row.avg_hrv_oura ?? "-"}
+            <span className="text-xs text-purple-400 ml-1">O</span>
+          </span>
+          <span className={`font-mono text-sm ${getHrvStyle(row.avg_hrv_whoop ?? null)}`}>
+            {row.avg_hrv_whoop ?? "-"}
+            <span className="text-xs text-green-400 ml-1">W</span>
+          </span>
+        </div>
       </td>
       <td className="px-3 py-2 text-center">
         <span className={`font-mono text-sm ${getSleepStyle(row.avg_sleep)}`}>
@@ -69,14 +108,22 @@ export default function TableRow({ row }: TableRowProps) {
         </span>
       </td>
       <td className="px-3 py-2 text-center">
-        <span
-          className={`px-2 py-1 rounded-full text-xs font-semibold ${getZoneBadge(row.zone)}`}
-        >
-          {row.zone}
-        </span>
+        {!isDay ? (
+          <span
+            className={`px-2 py-1 rounded-full text-xs font-semibold ${getZoneBadge(row.zone)}`}
+          >
+            {row.zone}
+          </span>
+        ) : (
+          <span className="text-xs text-slate-400">-</span>
+        )}
       </td>
       <td className="px-3 py-2 text-center">
-        <span className={getTrendStyle(row.trend)}>{row.trend}</span>
+        {!isDay ? (
+          <span className={getTrendStyle(row.trend)}>{row.trend}</span>
+        ) : (
+          <span className="text-xs text-slate-400">-</span>
+        )}
       </td>
     </tr>
   );
