@@ -4,20 +4,38 @@ import type {
   WhoopSleep,
   WhoopApiResponse,
 } from './types';
+import type { D1Database } from './d1-client';
+import { TokenStore } from './token-store';
 
 const WHOOP_BASE_URL = 'https://api.prod.whoop.com/developer/v1';
 
 export class WhoopClient {
   private accessToken: string;
+  private tokenStore?: TokenStore;
 
-  constructor(accessToken: string) {
+  constructor(accessToken: string, tokenStore?: TokenStore) {
     this.accessToken = accessToken;
+    this.tokenStore = tokenStore;
+  }
+
+  private async getValidToken(): Promise<string> {
+    if (this.tokenStore) {
+      const token = await this.tokenStore.getValidAccessToken('whoop');
+      if (token) {
+        this.accessToken = token;
+        return token;
+      }
+    }
+    return this.accessToken;
   }
 
   private async fetch<T>(
     endpoint: string,
     params: Record<string, string> = {}
   ): Promise<WhoopApiResponse<T>> {
+    // Get valid token (auto-refresh if expired)
+    const token = await this.getValidToken();
+
     const url = new URL(`${WHOOP_BASE_URL}/${endpoint}`);
     Object.entries(params).forEach(([key, value]) => {
       url.searchParams.append(key, value);
@@ -25,7 +43,7 @@ export class WhoopClient {
 
     const response = await fetch(url.toString(), {
       headers: {
-        Authorization: `Bearer ${this.accessToken}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
     });
@@ -82,9 +100,19 @@ export class WhoopClient {
   }
 }
 
-// Helper to create client from environment
+// Helper to create client from environment (legacy, no auto-refresh)
 export function createWhoopClient(): WhoopClient | null {
   const token = process.env.WHOOP_ACCESS_TOKEN;
   if (!token) return null;
   return new WhoopClient(token);
+}
+
+// Create client with D1 token store (auto-refresh enabled)
+export async function createWhoopClientWithD1(
+  db: D1Database
+): Promise<WhoopClient | null> {
+  const tokenStore = new TokenStore(db);
+  const token = await tokenStore.getValidAccessToken('whoop');
+  if (!token) return null;
+  return new WhoopClient(token, tokenStore);
 }

@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { TokenStore } from '@/lib/token-store';
+import type { D1Database } from '@/lib/d1-client';
 
 export const runtime = 'edge';
 
 const WHOOP_TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
 
+interface CloudflareEnv {
+  DB: D1Database;
+}
+
+// Get D1 from Cloudflare context
+function getD1(): D1Database | undefined {
+  return (process.env as unknown as CloudflareEnv).DB;
+}
+
 export async function GET(request: NextRequest) {
+  const db = getD1();
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get('code');
   const error = searchParams.get('error');
@@ -55,10 +67,30 @@ export async function GET(request: NextRequest) {
 
     const tokens = await response.json();
 
-    // Return token info - user should add to Cloudflare Dashboard
+    // Save tokens to D1 database for auto-refresh
+    let savedToDb = false;
+    if (db) {
+      try {
+        const tokenStore = new TokenStore(db);
+        await tokenStore.saveToken(
+          'whoop',
+          tokens.access_token,
+          tokens.refresh_token,
+          tokens.expires_in
+        );
+        savedToDb = true;
+      } catch (e) {
+        console.error('Failed to save tokens to D1:', e);
+      }
+    }
+
+    // Return success page
     return new NextResponse(
       `<html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto">
         <h2>Whoop 授权成功</h2>
+        ${savedToDb ? `
+        <p style="color:green">Token 已自动保存到数据库，支持自动刷新。</p>
+        ` : `
         <p>请将以下 Token 添加到 Cloudflare Dashboard 环境变量中：</p>
         <p><strong>WHOOP_ACCESS_TOKEN:</strong></p>
         <textarea readonly style="width:100%;height:80px;font-size:12px">${tokens.access_token}</textarea>
@@ -66,6 +98,7 @@ export async function GET(request: NextRequest) {
         <p><strong>WHOOP_REFRESH_TOKEN:</strong></p>
         <textarea readonly style="width:100%;height:80px;font-size:12px">${tokens.refresh_token}</textarea>
         ` : ''}
+        `}
         <p><a href="/">返回首页</a></p>
       </body></html>`,
       { headers: { 'Content-Type': 'text/html; charset=utf-8' } }

@@ -33,10 +33,11 @@ export default function DataSources({ oura, whoop, cached, onRefresh }: DataSour
       const result = await response.json();
 
       if (result.success) {
-        setSyncStatus(`Synced ${result.synced.total} days`);
+        const total = result.synced?.total ?? 0;
+        setSyncStatus(`Synced ${total} days`);
         onRefresh?.();
       } else {
-        setSyncStatus(`Error: ${result.error}`);
+        setSyncStatus(`Error: ${result.error || 'Unknown error'}`);
       }
     } catch (error) {
       setSyncStatus(`Error: ${error instanceof Error ? error.message : "Sync failed"}`);

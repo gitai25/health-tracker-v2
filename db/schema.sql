@@ -54,6 +54,17 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- OAuth tokens for Oura/Whoop API access
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider TEXT NOT NULL UNIQUE, -- 'whoop' or 'oura'
+  access_token TEXT NOT NULL,
+  refresh_token TEXT,
+  expires_at DATETIME, -- When access_token expires
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ============================================================
 -- Health Data
 -- ============================================================
