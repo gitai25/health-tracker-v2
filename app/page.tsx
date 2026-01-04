@@ -1,6 +1,6 @@
-import WeeklyTable from "@/components/WeeklyTable";
+"use client";
 
-export const runtime = "edge";
+import WeeklyTable from "@/components/WeeklyTable";
 
 export default function Home() {
   return <WeeklyTable />;
