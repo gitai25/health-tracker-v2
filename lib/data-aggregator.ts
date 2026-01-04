@@ -122,12 +122,22 @@ export function aggregateDailyData(
   // Steps (Oura specific)
   const steps = ouraActivity?.steps ?? null;
 
-  // MET-minutes (Oura specific - sum of high, medium, low activity)
-  const met_minutes = ouraActivity
-    ? (ouraActivity.high_activity_met_minutes ?? 0) +
+  // Kilojoules (Whoop specific)
+  const kilojoule = whoopCycle?.score?.kilojoule ?? null;
+
+  // MET-minutes calculation:
+  // - Oura: sum of high, medium, low activity MET-minutes
+  // - Whoop: convert kilojoules to MET-minutes (kJ / 52)
+  let met_minutes: number | null = null;
+  if (ouraActivity) {
+    met_minutes =
+      (ouraActivity.high_activity_met_minutes ?? 0) +
       (ouraActivity.medium_activity_met_minutes ?? 0) +
-      (ouraActivity.low_activity_met_minutes ?? 0)
-    : null;
+      (ouraActivity.low_activity_met_minutes ?? 0);
+  } else if (kilojoule !== null) {
+    // Convert Whoop kilojoules to MET-minutes
+    met_minutes = Math.round(kilojoule / 52);
+  }
 
   // Determine zone based on MET-minutes, recovery, and strain
   const zone = determineZone(met_minutes, recovery_score, strain);
@@ -375,34 +385,99 @@ export function processHealthData(
   );
 
   // Group into weeks (Sunday to Saturday)
-  const weeks: DailyHealthData[][] = [];
-  let currentWeek: DailyHealthData[] = [];
+  const weekMap = new Map<string, DailyHealthData[]>();
 
   for (const day of dailyData) {
     const date = new Date(day.date);
-    const dayOfWeek = date.getDay();
+    const year = date.getFullYear();
+    const week = getWeekNumber(date);
 
-    if (dayOfWeek === 0 && currentWeek.length > 0) {
-      weeks.push(currentWeek);
-      currentWeek = [];
+    // Handle year boundary (week 53/week 1)
+    let key: string;
+    if (week === 1 && date.getMonth() === 0 && date.getDate() <= 4) {
+      key = `${year - 1}-W53`;
+    } else if (week >= 52 && date.getMonth() === 11 && date.getDate() >= 29) {
+      key = `${year}-W53`;
+    } else {
+      key = `${year}-W${week}`;
     }
 
-    currentWeek.push(day);
+    if (!weekMap.has(key)) {
+      weekMap.set(key, []);
+    }
+    weekMap.get(key)!.push(day);
   }
 
-  if (currentWeek.length > 0) {
-    weeks.push(currentWeek);
+  // Sort week keys descending (newest first)
+  const sortedWeekKeys = Array.from(weekMap.keys()).sort((a, b) => b.localeCompare(a));
+
+  const result: WeeklyHealthData[] = [];
+
+  for (const key of sortedWeekKeys) {
+    const days = weekMap.get(key)!;
+    days.sort((a, b) => a.date.localeCompare(b.date));
+
+    const weeklyAggregate = aggregateWeeklyData(days);
+    const isIncomplete = days.length < 7;
+
+    if (isIncomplete) {
+      // Add week summary row first
+      result.push({
+        ...weeklyAggregate,
+        row_type: 'week_cumulative',
+      });
+
+      // Then add daily rows (newest first)
+      const sortedDays = [...days].sort((a, b) => b.date.localeCompare(a.date));
+      let cumulativeMetMin = 0;
+
+      for (const day of sortedDays) {
+        const dayDate = new Date(day.date);
+        // Calculate cumulative from oldest to this day
+        const daysUpToThis = days.filter(d => d.date <= day.date);
+        const cumulativeKj = daysUpToThis.reduce(
+          (acc, d) => acc + (d.whoop?.strain?.score?.kilojoule ?? 0),
+          0
+        );
+        cumulativeMetMin = Math.round(cumulativeKj / 52);
+
+        result.push({
+          week: `  ${dayDate.getMonth() + 1}/${dayDate.getDate()}`,
+          date_range: ['日', '一', '二', '三', '四', '五', '六'][dayDate.getDay()],
+          start_date: day.date,
+          end_date: day.date,
+          daily_data: [],
+          days_count: 1,
+          avg_readiness: day.combined.readiness_score,
+          avg_recovery: day.combined.recovery_score,
+          avg_sleep: day.combined.sleep_score,
+          avg_hrv: day.combined.hrv,
+          avg_steps: day.combined.steps,
+          total_strain: day.combined.strain,
+          total_met_minutes: day.combined.met_minutes,
+          cumulative_met_minutes: cumulativeMetMin,
+          zone: '-',
+          trend: '→',
+          health_status: '健康',
+          row_type: 'day',
+        });
+      }
+    } else {
+      // Complete week - single row
+      result.push({
+        ...weeklyAggregate,
+        row_type: 'week',
+      });
+    }
   }
 
-  // Aggregate weekly data
-  const weeklyData = weeks.map((week) => aggregateWeeklyData(week));
-
-  // Compute trends between weeks
-  for (let i = 1; i < weeklyData.length; i++) {
-    const prev = weeklyData[i - 1];
-    const curr = weeklyData[i];
+  // Compute trends between week rows
+  const weekRows = result.filter(r => r.row_type === 'week' || r.row_type === 'week_cumulative');
+  for (let i = 0; i < weekRows.length - 1; i++) {
+    const curr = weekRows[i];
+    const prev = weekRows[i + 1];
     curr.trend = determineTrend(curr.avg_recovery, prev.avg_recovery);
   }
 
-  return weeklyData;
+  return result;
 }
