@@ -146,19 +146,14 @@ export function aggregateDailyData(
   const kilojoule = whoopCycle?.score?.kilojoule ?? null;
 
   // MET-minutes calculation:
-  // Priority: Whoop kilojoule → Oura MET-minutes
+  // ONLY use Whoop kilojoule - no Oura fallback
   // Whoop formula: (Total kJ - BMR) / conversion factor
   let met_minutes: number | null = null;
   if (kilojoule !== null) {
     const activeKj = Math.max(0, kilojoule - MET_CONFIG.BMR_KJ);
     met_minutes = Math.round(activeKj / MET_CONFIG.CONVERSION_FACTOR);
-  } else if (ouraActivity) {
-    // Fallback to Oura
-    met_minutes =
-      (ouraActivity.high_activity_met_minutes ?? 0) +
-      (ouraActivity.medium_activity_met_minutes ?? 0) +
-      (ouraActivity.low_activity_met_minutes ?? 0);
   }
+  // No Oura fallback - MET-min stays null if no Whoop data
 
   // Determine zone based on MET-minutes, recovery, and strain
   const zone = determineZone(met_minutes, recovery_score, strain);
@@ -336,22 +331,44 @@ function buildDataMaps(
     ? groupByDate(ouraData.activity, 'day')
     : new Map<string, OuraActivity>();
 
-  // Build Whoop cycle map
-  const whoopCycle = whoopData
-    ? new Map(whoopData.cycles.map((c) => [c.start.split('T')[0], c]))
-    : new Map<string, WhoopCycle>();
-
-  // Build recovery map by cycle_id first, then map to wake-up date (next day)
+  // Build Whoop cycle and recovery maps
+  // Whoop cycles are wake-to-wake: a cycle starting on day N represents activity on day N
+  // But the cycle data isn't complete until the next morning
+  // Map cycles by START date (the day activity was accumulated)
+  const whoopCycle = new Map<string, WhoopCycle>();
   const whoopRecovery = new Map<string, WhoopRecovery>();
+
   if (whoopData) {
     const recoveryByCycleId = new Map(whoopData.recovery.map((r) => [r.cycle_id, r]));
+
     for (const cycle of whoopData.cycles) {
+      // Use the cycle start date as the activity date
+      const activityDate = cycle.start.split('T')[0];
+      whoopCycle.set(activityDate, cycle);
+
+      // Recovery is measured when you wake up, so it belongs to the NEXT day
+      // But for display purposes, we associate it with the same activity date
       const recovery = recoveryByCycleId.get(cycle.id);
       if (recovery) {
-        const cycleDate = new Date(cycle.start.split('T')[0]);
-        cycleDate.setDate(cycleDate.getDate() + 1); // Next day (wake-up date)
-        const wakeUpDate = cycleDate.toISOString().split('T')[0];
-        whoopRecovery.set(wakeUpDate, recovery);
+        // Recovery for this cycle goes to the activity date (same as strain)
+        whoopRecovery.set(activityDate, recovery);
+      }
+    }
+
+    // Also try to find today's recovery from a cycle that started yesterday
+    // (since recovery is scored when you wake up, it comes from the previous cycle)
+    for (const recovery of whoopData.recovery) {
+      // Find the cycle for this recovery
+      const cycle = whoopData.cycles.find(c => c.id === recovery.cycle_id);
+      if (cycle) {
+        // The recovery belongs to the day AFTER the cycle start (when you woke up)
+        const cycleStart = new Date(cycle.start);
+        cycleStart.setDate(cycleStart.getDate() + 1);
+        const recoveryDate = cycleStart.toISOString().split('T')[0];
+        // Only set if we don't already have recovery for this date
+        if (!whoopRecovery.has(recoveryDate)) {
+          whoopRecovery.set(recoveryDate, recovery);
+        }
       }
     }
   }
