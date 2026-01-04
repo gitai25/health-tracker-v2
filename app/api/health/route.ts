@@ -1,25 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OuraClient, createOuraClientWithD1 } from '@/lib/oura-client';
 import { WhoopClient, createWhoopClientWithD1 } from '@/lib/whoop-client';
-import { processHealthData, generateDailyData } from '@/lib/data-aggregator';
+import { processHealthData, generateDailyData, determineZone } from '@/lib/data-aggregator';
 import { getDateRange } from '@/lib/utils';
 import { D1Client } from '@/lib/d1-client';
-import type { D1Database } from '@/lib/d1-client';
+import { getD1 } from '@/lib/db-utils';
+import { DISPLAY_CONFIG } from '@/lib/config';
+import type { WeeklyHealthData } from '@/lib/types';
 
 export const runtime = 'edge';
-
-interface CloudflareEnv {
-  DB: D1Database;
-}
-
-function getD1(): D1Database | undefined {
-  return (process.env as unknown as CloudflareEnv).DB;
-}
 
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
-    const weeks = parseInt(searchParams.get('weeks') || '12', 10);
+    const weeks = parseInt(searchParams.get('weeks') || String(DISPLAY_CONFIG.DEFAULT_WEEKS), 10);
 
     const { start, end } = getDateRange(weeks);
     const db = getD1();
@@ -111,8 +105,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function getDemoData() {
-  const result: any[] = [];
+function getDemoData(): WeeklyHealthData[] {
+  const result: WeeklyHealthData[] = [];
   const now = new Date();
   const today = now.getDay(); // 0=Sunday, 1=Monday, etc.
 
@@ -135,7 +129,7 @@ function getDemoData() {
     // For current incomplete week, show daily breakdown
     if (isCurrentWeek && daysInWeek < 7) {
       // Generate daily data
-      const dailyRows: any[] = [];
+      const dailyRows: WeeklyHealthData[] = [];
       let totalMetMin = 0;
       let totalReadiness = 0;
       let totalRecovery = 0;
@@ -176,7 +170,7 @@ function getDemoData() {
           total_strain: null,
           total_met_minutes: dailyMetMin,
           cumulative_met_minutes: totalMetMin,
-          zone: getZone(dailyMetMin, recovery),
+          zone: determineZone(dailyMetMin, null, recovery),
           trend: '→',
           health_status: '健康',
           row_type: 'day',
@@ -199,7 +193,7 @@ function getDemoData() {
         avg_steps: Math.round(totalSteps / daysInWeek),
         total_strain: null,
         total_met_minutes: totalMetMin,
-        zone: getZone(Math.round(totalMetMin / daysInWeek), avgRecovery),
+        zone: determineZone(Math.round(totalMetMin / daysInWeek), null, avgRecovery),
         trend: '→',
         health_status: '健康',
         row_type: 'week_cumulative',
@@ -231,7 +225,7 @@ function getDemoData() {
         avg_steps: steps,
         total_strain: null,
         total_met_minutes: totalMetMin,
-        zone: getZone(dailyMetMin, recovery),
+        zone: determineZone(dailyMetMin, null, recovery),
         trend: ['↑', '→', '↓'][Math.floor(Math.random() * 3)],
         health_status: '健康',
         row_type: 'week',
@@ -242,15 +236,3 @@ function getDemoData() {
   return result;
 }
 
-function getZone(dailyMetMin: number, recovery: number): string {
-  if (dailyMetMin > 350) return 'J型右侧风险';
-  if (dailyMetMin > 300) return '右侧临界';
-  if (dailyMetMin > 250) return '高负荷';
-  if (dailyMetMin > 200) return '轻度高负荷';
-  if (dailyMetMin > 180) return '稍高';
-  if (recovery >= 67 && dailyMetMin >= 150 && dailyMetMin <= 180) return '黄金锚点';
-  if (recovery >= 67 && dailyMetMin >= 100 && dailyMetMin <= 200) return '最优区';
-  if (recovery < 34) return '恢复稳态';
-  if (dailyMetMin >= 100 && dailyMetMin <= 200) return '最优区';
-  return '恢复稳态';
-}

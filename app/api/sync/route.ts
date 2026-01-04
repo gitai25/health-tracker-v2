@@ -2,18 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { D1Client } from '@/lib/d1-client';
 import { createWhoopClientWithD1 } from '@/lib/whoop-client';
 import { createOuraClientWithD1 } from '@/lib/oura-client';
-import type { D1Database } from '@/lib/d1-client';
+import { getD1 } from '@/lib/db-utils';
 
 export const runtime = 'edge';
-
-interface CloudflareEnv {
-  DB: D1Database;
-}
-
-// Get D1 from Cloudflare context
-function getD1(): D1Database | undefined {
-  return (process.env as unknown as CloudflareEnv).DB;
-}
 
 function getDateRange(days: number): { start: string; end: string } {
   const end = new Date();

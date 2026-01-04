@@ -8,53 +8,67 @@ import type {
   WhoopCycle,
   WhoopSleep,
 } from './types';
+import {
+  MET_CONFIG,
+  ZONE_THRESHOLDS,
+  ZONE_NAMES,
+} from './config';
 
-// Determine zone based on DAILY MET-minutes and recovery
-// Daily thresholds derived from weekly targets (÷7):
-//   Weekly 900-1200 optimal → Daily 129-171
-//   Weekly 1050 golden anchor → Daily ~150
-function determineZone(
+const { MET, STRAIN, RECOVERY } = ZONE_THRESHOLDS;
+
+/**
+ * Determine zone based on DAILY MET-minutes and recovery
+ * Daily thresholds derived from weekly targets (÷7)
+ * Exported for use in demo data generation
+ */
+export function determineZone(
   metMinutes: number | null,
   recovery: number | null,
   strain: number | null
 ): string {
-  // Daily MET-min thresholds (weekly ÷ 7)
+  // Daily MET-min thresholds
   if (metMinutes !== null) {
-    if (metMinutes > 214) return 'J型右侧风险';     // Weekly > 1500
-    if (metMinutes > 200) return '右侧临界';        // Weekly 1400-1500
-    if (metMinutes > 186) return '高负荷';          // Weekly 1300-1400
-    if (metMinutes > 171) return '稍高';            // Weekly 1200-1300
+    if (metMinutes > MET.J_RISK) return ZONE_NAMES.J_RISK;
+    if (metMinutes > MET.CRITICAL) return ZONE_NAMES.CRITICAL;
+    if (metMinutes > MET.HIGH_LOAD) return ZONE_NAMES.HIGH_LOAD;
+    if (metMinutes > MET.SLIGHTLY_HIGH) return ZONE_NAMES.SLIGHTLY_HIGH;
 
     if (recovery !== null) {
-      // 黄金锚点: ~150 MET-min/day + good recovery
-      if (recovery >= 67 && metMinutes >= 143 && metMinutes <= 157) return '黄金锚点';
-      // 最优区: 129-171 MET-min/day + good recovery
-      if (recovery >= 67 && metMinutes >= 129 && metMinutes <= 171) return '最优区';
-      if (recovery < 34) return '恢复稳态';
+      if (recovery >= RECOVERY.GOOD && metMinutes >= MET.GOLDEN_MIN && metMinutes <= MET.GOLDEN_MAX) {
+        return ZONE_NAMES.GOLDEN;
+      }
+      if (recovery >= RECOVERY.GOOD && metMinutes >= MET.OPTIMAL_MIN && metMinutes <= MET.OPTIMAL_MAX) {
+        return ZONE_NAMES.OPTIMAL;
+      }
+      if (recovery < RECOVERY.LOW) return ZONE_NAMES.RECOVERY;
     }
 
-    if (metMinutes >= 129 && metMinutes <= 171) return '最优区';  // Weekly 900-1200
-    if (metMinutes < 129) return '恢复稳态';                       // Weekly < 900
+    if (metMinutes >= MET.OPTIMAL_MIN && metMinutes <= MET.OPTIMAL_MAX) return ZONE_NAMES.OPTIMAL;
+    if (metMinutes < MET.OPTIMAL_MIN) return ZONE_NAMES.RECOVERY;
   }
 
   // Fallback to Whoop strain if no MET-minutes
   if (strain !== null) {
-    if (strain > 18) return 'J型右侧风险';
-    if (strain > 16) return '右侧临界';
-    if (strain > 14) return '高负荷';
-    if (strain > 12) return '稍高';
+    if (strain > STRAIN.J_RISK) return ZONE_NAMES.J_RISK;
+    if (strain > STRAIN.CRITICAL) return ZONE_NAMES.CRITICAL;
+    if (strain > STRAIN.HIGH_LOAD) return ZONE_NAMES.HIGH_LOAD;
+    if (strain > STRAIN.SLIGHTLY_HIGH) return ZONE_NAMES.SLIGHTLY_HIGH;
 
     if (recovery !== null) {
-      if (recovery >= 67 && strain >= 8 && strain <= 12) return '黄金锚点';
-      if (recovery >= 67 && strain >= 6 && strain <= 14) return '最优区';
-      if (recovery < 34) return '恢复稳态';
+      if (recovery >= RECOVERY.GOOD && strain >= STRAIN.GOLDEN_MIN && strain <= STRAIN.GOLDEN_MAX) {
+        return ZONE_NAMES.GOLDEN;
+      }
+      if (recovery >= RECOVERY.GOOD && strain >= STRAIN.OPTIMAL_MIN && strain <= STRAIN.OPTIMAL_MAX) {
+        return ZONE_NAMES.OPTIMAL;
+      }
+      if (recovery < RECOVERY.LOW) return ZONE_NAMES.RECOVERY;
     }
 
-    if (strain >= 6 && strain <= 12) return '最优区';
-    if (strain < 6) return '恢复稳态';
+    if (strain >= STRAIN.OPTIMAL_MIN && strain <= STRAIN.GOLDEN_MAX) return ZONE_NAMES.OPTIMAL;
+    if (strain < STRAIN.OPTIMAL_MIN) return ZONE_NAMES.RECOVERY;
   }
 
-  return '恢复稳态';
+  return ZONE_NAMES.RECOVERY;
 }
 
 // Determine trend based on recent data
@@ -133,16 +147,11 @@ export function aggregateDailyData(
 
   // MET-minutes calculation:
   // Priority: Whoop kilojoule → Oura MET-minutes
-  // Whoop formula (for 72kg person):
-  //   BMR = 72kg × 24hr × 1kcal/kg/hr = 1728 kcal = 7230 kJ
-  //   Active kJ = Total kJ - BMR
-  //   MET-min = Active kJ / 5 (where 1 MET-min ≈ 5 kJ for 72kg)
-  const BMR_KJ = 7230;
+  // Whoop formula: (Total kJ - BMR) / conversion factor
   let met_minutes: number | null = null;
   if (kilojoule !== null) {
-    // Use Whoop: (kJ - BMR) / 5
-    const activeKj = Math.max(0, kilojoule - BMR_KJ);
-    met_minutes = Math.round(activeKj / 5);
+    const activeKj = Math.max(0, kilojoule - MET_CONFIG.BMR_KJ);
+    met_minutes = Math.round(activeKj / MET_CONFIG.CONVERSION_FACTOR);
   } else if (ouraActivity) {
     // Fallback to Oura
     met_minutes =
@@ -285,144 +294,125 @@ export function generateDateRange(startDate: string, endDate: string): string[] 
   return dates;
 }
 
-// Generate daily health data from API responses
-export function generateDailyData(
-  ouraData: {
-    readiness: OuraReadiness[];
-    sleep: OuraSleep[];
-    activity: OuraActivity[];
-  } | null,
-  whoopData: {
-    recovery: WhoopRecovery[];
-    cycles: WhoopCycle[];
-    sleep: WhoopSleep[];
-  } | null,
-  startDate: string,
-  endDate: string
-): DailyHealthData[] {
-  const ouraReadinessMap = ouraData
+// Type definitions for API data
+interface OuraApiData {
+  readiness: OuraReadiness[];
+  sleep: OuraSleep[];
+  activity: OuraActivity[];
+}
+
+interface WhoopApiData {
+  recovery: WhoopRecovery[];
+  cycles: WhoopCycle[];
+  sleep: WhoopSleep[];
+}
+
+// Data maps for efficient lookups
+interface DataMaps {
+  ouraReadiness: Map<string, OuraReadiness>;
+  ouraSleep: Map<string, OuraSleep>;
+  ouraActivity: Map<string, OuraActivity>;
+  whoopRecovery: Map<string, WhoopRecovery>;
+  whoopCycle: Map<string, WhoopCycle>;
+  whoopSleep: Map<string, WhoopSleep>;
+}
+
+/**
+ * Build lookup maps from API data
+ * Centralizes the map-building logic to avoid duplication
+ */
+function buildDataMaps(
+  ouraData: OuraApiData | null,
+  whoopData: WhoopApiData | null
+): DataMaps {
+  // Build Oura maps
+  const ouraReadiness = ouraData
     ? groupByDate(ouraData.readiness, 'day')
-    : new Map();
-  const ouraSleepMap = ouraData
+    : new Map<string, OuraReadiness>();
+  const ouraSleep = ouraData
     ? groupByDate(ouraData.sleep, 'day')
-    : new Map();
-  const ouraActivityMap = ouraData
+    : new Map<string, OuraSleep>();
+  const ouraActivity = ouraData
     ? groupByDate(ouraData.activity, 'day')
-    : new Map();
+    : new Map<string, OuraActivity>();
 
-  // Build recovery map by cycle_id first
-  const recoveryByCycleId = whoopData
-    ? new Map(whoopData.recovery.map((r) => [r.cycle_id, r]))
-    : new Map();
-
-  // Map cycles to their date (strain/kilojoule stays on cycle date)
-  const whoopCycleMap = whoopData
+  // Build Whoop cycle map
+  const whoopCycle = whoopData
     ? new Map(whoopData.cycles.map((c) => [c.start.split('T')[0], c]))
-    : new Map();
+    : new Map<string, WhoopCycle>();
 
-  // Map recovery to NEXT day (wake-up date)
-  const whoopRecoveryMap = new Map<string, WhoopRecovery>();
+  // Build recovery map by cycle_id first, then map to wake-up date (next day)
+  const whoopRecovery = new Map<string, WhoopRecovery>();
   if (whoopData) {
+    const recoveryByCycleId = new Map(whoopData.recovery.map((r) => [r.cycle_id, r]));
     for (const cycle of whoopData.cycles) {
       const recovery = recoveryByCycleId.get(cycle.id);
       if (recovery) {
         const cycleDate = new Date(cycle.start.split('T')[0]);
-        cycleDate.setDate(cycleDate.getDate() + 1);
+        cycleDate.setDate(cycleDate.getDate() + 1); // Next day (wake-up date)
         const wakeUpDate = cycleDate.toISOString().split('T')[0];
-        whoopRecoveryMap.set(wakeUpDate, recovery);
+        whoopRecovery.set(wakeUpDate, recovery);
       }
     }
   }
 
-  const whoopSleepMap = whoopData
+  // Build Whoop sleep map
+  const whoopSleep = whoopData
     ? new Map(whoopData.sleep.map((s) => [s.start.split('T')[0], s]))
-    : new Map();
+    : new Map<string, WhoopSleep>();
 
-  const dates = generateDateRange(startDate, endDate);
+  return {
+    ouraReadiness,
+    ouraSleep,
+    ouraActivity,
+    whoopRecovery,
+    whoopCycle,
+    whoopSleep,
+  };
+}
 
+/**
+ * Generate daily health data for a date range using pre-built maps
+ */
+function generateDailyDataFromMaps(
+  dates: string[],
+  maps: DataMaps
+): DailyHealthData[] {
   return dates.map((date) =>
     aggregateDailyData(
       date,
-      ouraReadinessMap.get(date),
-      ouraSleepMap.get(date),
-      ouraActivityMap.get(date),
-      whoopRecoveryMap.get(date),
-      whoopCycleMap.get(date),
-      whoopSleepMap.get(date)
+      maps.ouraReadiness.get(date),
+      maps.ouraSleep.get(date),
+      maps.ouraActivity.get(date),
+      maps.whoopRecovery.get(date),
+      maps.whoopCycle.get(date),
+      maps.whoopSleep.get(date)
     )
   );
 }
 
+// Generate daily health data from API responses
+export function generateDailyData(
+  ouraData: OuraApiData | null,
+  whoopData: WhoopApiData | null,
+  startDate: string,
+  endDate: string
+): DailyHealthData[] {
+  const maps = buildDataMaps(ouraData, whoopData);
+  const dates = generateDateRange(startDate, endDate);
+  return generateDailyDataFromMaps(dates, maps);
+}
+
 // Process all data from both APIs into weekly summaries
 export function processHealthData(
-  ouraData: {
-    readiness: OuraReadiness[];
-    sleep: OuraSleep[];
-    activity: OuraActivity[];
-  } | null,
-  whoopData: {
-    recovery: WhoopRecovery[];
-    cycles: WhoopCycle[];
-    sleep: WhoopSleep[];
-  } | null,
+  ouraData: OuraApiData | null,
+  whoopData: WhoopApiData | null,
   startDate: string,
   endDate: string
 ): WeeklyHealthData[] {
-  // Group all data by date
-  const ouraReadinessMap = ouraData
-    ? groupByDate(ouraData.readiness, 'day')
-    : new Map();
-  const ouraSleepMap = ouraData
-    ? groupByDate(ouraData.sleep, 'day')
-    : new Map();
-  const ouraActivityMap = ouraData
-    ? groupByDate(ouraData.activity, 'day')
-    : new Map();
-
-  // Build recovery map by cycle_id first
-  const recoveryByCycleId = whoopData
-    ? new Map(whoopData.recovery.map((r) => [r.cycle_id, r]))
-    : new Map();
-
-  // Map cycles to their date (strain/kilojoule stays on cycle date)
-  const whoopCycleMap = whoopData
-    ? new Map(whoopData.cycles.map((c) => [c.start.split('T')[0], c]))
-    : new Map();
-
-  // Map recovery to NEXT day (wake-up date)
-  // Recovery is measured when you wake up, which is the day after the cycle started
-  const whoopRecoveryMap = new Map<string, WhoopRecovery>();
-  if (whoopData) {
-    for (const cycle of whoopData.cycles) {
-      const recovery = recoveryByCycleId.get(cycle.id);
-      if (recovery) {
-        const cycleDate = new Date(cycle.start.split('T')[0]);
-        cycleDate.setDate(cycleDate.getDate() + 1); // Next day
-        const wakeUpDate = cycleDate.toISOString().split('T')[0];
-        whoopRecoveryMap.set(wakeUpDate, recovery);
-      }
-    }
-  }
-
-  const whoopSleepMap = whoopData
-    ? new Map(whoopData.sleep.map((s) => [s.start.split('T')[0], s]))
-    : new Map();
-
-  // Generate all dates in range
+  const maps = buildDataMaps(ouraData, whoopData);
   const dates = generateDateRange(startDate, endDate);
-
-  // Aggregate daily data
-  const dailyData: DailyHealthData[] = dates.map((date) =>
-    aggregateDailyData(
-      date,
-      ouraReadinessMap.get(date),
-      ouraSleepMap.get(date),
-      ouraActivityMap.get(date),
-      whoopRecoveryMap.get(date),
-      whoopCycleMap.get(date),
-      whoopSleepMap.get(date)
-    )
-  );
+  const dailyData = generateDailyDataFromMaps(dates, maps);
 
   // Group into weeks (Sunday to Saturday)
   const weekMap = new Map<string, DailyHealthData[]>();

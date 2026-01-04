@@ -1,16 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TokenStore } from '@/lib/token-store';
-import type { D1Database } from '@/lib/d1-client';
+import { getD1 } from '@/lib/db-utils';
 
 export const runtime = 'edge';
-
-interface CloudflareEnv {
-  DB: D1Database;
-}
-
-function getD1(): D1Database | undefined {
-  return (process.env as unknown as CloudflareEnv).DB;
-}
 
 // Cron job to refresh tokens before they expire
 // Call this endpoint hourly: GET /api/cron/refresh-tokens

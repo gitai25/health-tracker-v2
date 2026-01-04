@@ -188,14 +188,104 @@ export class D1Client {
       .run();
   }
 
-  // Save multiple daily records
+  // Prepare a single daily record statement (for batch operations)
+  private prepareDailyRecordStatement(data: DailyHealthData): D1PreparedStatement {
+    const oura = data.oura;
+    const whoop = data.whoop;
+    const combined = data.combined;
+
+    return this.db
+      .prepare(
+        `INSERT INTO daily_records (
+          date,
+          oura_readiness_score, oura_readiness_hrv_balance, oura_readiness_body_temp, oura_readiness_recovery_index,
+          oura_sleep_score, oura_sleep_deep, oura_sleep_rem, oura_sleep_efficiency,
+          oura_steps, oura_active_calories, oura_activity_score,
+          whoop_recovery_score, whoop_hrv, whoop_rhr, whoop_spo2, whoop_skin_temp,
+          whoop_strain, whoop_calories, whoop_avg_hr, whoop_max_hr,
+          whoop_sleep_performance, whoop_sleep_efficiency, whoop_sleep_consistency,
+          combined_hrv, combined_rhr, combined_sleep_score, combined_recovery_score,
+          zone, trend, health_status, synced_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT(date) DO UPDATE SET
+          oura_readiness_score = excluded.oura_readiness_score,
+          oura_readiness_hrv_balance = excluded.oura_readiness_hrv_balance,
+          oura_readiness_body_temp = excluded.oura_readiness_body_temp,
+          oura_readiness_recovery_index = excluded.oura_readiness_recovery_index,
+          oura_sleep_score = excluded.oura_sleep_score,
+          oura_sleep_deep = excluded.oura_sleep_deep,
+          oura_sleep_rem = excluded.oura_sleep_rem,
+          oura_sleep_efficiency = excluded.oura_sleep_efficiency,
+          oura_steps = excluded.oura_steps,
+          oura_active_calories = excluded.oura_active_calories,
+          oura_activity_score = excluded.oura_activity_score,
+          whoop_recovery_score = excluded.whoop_recovery_score,
+          whoop_hrv = excluded.whoop_hrv,
+          whoop_rhr = excluded.whoop_rhr,
+          whoop_spo2 = excluded.whoop_spo2,
+          whoop_skin_temp = excluded.whoop_skin_temp,
+          whoop_strain = excluded.whoop_strain,
+          whoop_calories = excluded.whoop_calories,
+          whoop_avg_hr = excluded.whoop_avg_hr,
+          whoop_max_hr = excluded.whoop_max_hr,
+          whoop_sleep_performance = excluded.whoop_sleep_performance,
+          whoop_sleep_efficiency = excluded.whoop_sleep_efficiency,
+          whoop_sleep_consistency = excluded.whoop_sleep_consistency,
+          combined_hrv = excluded.combined_hrv,
+          combined_rhr = excluded.combined_rhr,
+          combined_sleep_score = excluded.combined_sleep_score,
+          combined_recovery_score = excluded.combined_recovery_score,
+          zone = excluded.zone,
+          trend = excluded.trend,
+          health_status = excluded.health_status,
+          synced_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP`
+      )
+      .bind(
+        data.date,
+        oura?.readiness?.score ?? null,
+        oura?.readiness?.contributors.hrv_balance ?? null,
+        oura?.readiness?.contributors.body_temperature ?? null,
+        oura?.readiness?.contributors.recovery_index ?? null,
+        oura?.sleep?.score ?? null,
+        oura?.sleep?.contributors.deep_sleep ?? null,
+        oura?.sleep?.contributors.rem_sleep ?? null,
+        oura?.sleep?.contributors.efficiency ?? null,
+        oura?.activity?.steps ?? null,
+        oura?.activity?.active_calories ?? null,
+        oura?.activity?.score ?? null,
+        whoop?.recovery?.score?.recovery_score ?? null,
+        whoop?.recovery?.score?.hrv_rmssd_milli ?? null,
+        whoop?.recovery?.score?.resting_heart_rate ?? null,
+        whoop?.recovery?.score?.spo2_percentage ?? null,
+        whoop?.recovery?.score?.skin_temp_celsius ?? null,
+        whoop?.strain?.score?.strain ?? null,
+        whoop?.strain?.score?.kilojoule ?? null,
+        whoop?.strain?.score?.average_heart_rate ?? null,
+        whoop?.strain?.score?.max_heart_rate ?? null,
+        whoop?.sleep?.score?.sleep_performance_percentage ?? null,
+        whoop?.sleep?.score?.sleep_efficiency_percentage ?? null,
+        whoop?.sleep?.score?.sleep_consistency_percentage ?? null,
+        combined.hrv,
+        combined.rhr,
+        combined.sleep_score,
+        combined.recovery_score,
+        combined.zone,
+        combined.trend,
+        combined.health_status
+      );
+  }
+
+  // Save multiple daily records using batch for better performance
   async saveDailyRecords(records: DailyHealthData[]): Promise<number> {
-    let saved = 0;
-    for (const record of records) {
-      await this.saveDailyRecord(record);
-      saved++;
-    }
-    return saved;
+    if (records.length === 0) return 0;
+
+    // Use batch for better performance (single round-trip to D1)
+    const statements = records.map((record) => this.prepareDailyRecordStatement(record));
+    const results = await this.db.batch(statements);
+
+    // Count successful operations
+    return results.filter((r) => r.success).length;
   }
 
   // Get daily records by date range
