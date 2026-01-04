@@ -9,29 +9,32 @@ import type {
   WhoopSleep,
 } from './types';
 
-// Determine zone based on MET-minutes and recovery
-// MET-min zones: 900-1200 optimal, 1050 golden anchor
+// Determine zone based on DAILY MET-minutes and recovery
+// Daily thresholds derived from weekly targets (÷7):
+//   Weekly 900-1200 optimal → Daily 129-171
+//   Weekly 1050 golden anchor → Daily ~150
 function determineZone(
   metMinutes: number | null,
   recovery: number | null,
   strain: number | null
 ): string {
-  // If we have MET-minutes (from Oura), use that
+  // Daily MET-min thresholds (weekly ÷ 7)
   if (metMinutes !== null) {
-    if (metMinutes > 1500) return 'J型右侧风险';
-    if (metMinutes > 1400) return '右侧临界';
-    if (metMinutes > 1300) return '高负荷';
-    if (metMinutes > 1200) return '轻度高负荷';
-    if (metMinutes > 1100) return '稍高';
+    if (metMinutes > 214) return 'J型右侧风险';     // Weekly > 1500
+    if (metMinutes > 200) return '右侧临界';        // Weekly 1400-1500
+    if (metMinutes > 186) return '高负荷';          // Weekly 1300-1400
+    if (metMinutes > 171) return '稍高';            // Weekly 1200-1300
 
     if (recovery !== null) {
-      if (recovery >= 67 && metMinutes >= 1000 && metMinutes <= 1100) return '黄金锚点';
-      if (recovery >= 67 && metMinutes >= 900 && metMinutes <= 1200) return '最优区';
+      // 黄金锚点: ~150 MET-min/day + good recovery
+      if (recovery >= 67 && metMinutes >= 143 && metMinutes <= 157) return '黄金锚点';
+      // 最优区: 129-171 MET-min/day + good recovery
+      if (recovery >= 67 && metMinutes >= 129 && metMinutes <= 171) return '最优区';
       if (recovery < 34) return '恢复稳态';
     }
 
-    if (metMinutes >= 900 && metMinutes <= 1200) return '最优区';
-    if (metMinutes < 900) return '恢复稳态';
+    if (metMinutes >= 129 && metMinutes <= 171) return '最优区';  // Weekly 900-1200
+    if (metMinutes < 129) return '恢复稳态';                       // Weekly < 900
   }
 
   // Fallback to Whoop strain if no MET-minutes
@@ -39,14 +42,16 @@ function determineZone(
     if (strain > 18) return 'J型右侧风险';
     if (strain > 16) return '右侧临界';
     if (strain > 14) return '高负荷';
-    if (strain > 12) return '轻度高负荷';
-    if (strain > 10) return '稍高';
+    if (strain > 12) return '稍高';
 
     if (recovery !== null) {
       if (recovery >= 67 && strain >= 8 && strain <= 12) return '黄金锚点';
-      if (recovery >= 67) return '最优区';
+      if (recovery >= 67 && strain >= 6 && strain <= 14) return '最优区';
       if (recovery < 34) return '恢复稳态';
     }
+
+    if (strain >= 6 && strain <= 12) return '最优区';
+    if (strain < 6) return '恢复稳态';
   }
 
   return '恢复稳态';
