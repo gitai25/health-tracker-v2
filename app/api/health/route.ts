@@ -69,12 +69,14 @@ export async function GET(request: NextRequest) {
 }
 
 function getDemoData() {
-  const weeks = [];
+  const result: any[] = [];
   const now = new Date();
+  const today = now.getDay(); // 0=Sunday, 1=Monday, etc.
 
-  for (let i = 11; i >= 0; i--) {
+  // Generate 12 weeks of data, newest first
+  for (let i = 0; i < 12; i++) {
     const weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - i * 7);
+    weekStart.setDate(weekStart.getDate() - i * 7 - today); // Go to Sunday of that week
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 6);
 
@@ -83,42 +85,129 @@ function getDemoData() {
         (7 * 24 * 60 * 60 * 1000)
     );
 
-    const readiness = Math.floor(Math.random() * 30) + 60;
-    const recovery = Math.floor(Math.random() * 40) + 40;
-    const sleep = Math.floor(Math.random() * 25) + 65;
-    const hrv = Math.floor(Math.random() * 40) + 30;
-    const steps = Math.floor(Math.random() * 5000) + 6000;
-    const metMin = Math.floor(Math.random() * 400) + 900;
-
-    let zone = '最优区';
-    if (metMin > 1400) zone = '高负荷';
-    else if (metMin > 1200) zone = '轻度高负荷';
-    else if (metMin > 1100) zone = '稍高';
-    else if (recovery > 67 && metMin >= 1000 && metMin <= 1100) zone = '黄金锚点';
-    else if (recovery < 34) zone = '恢复稳态';
-
     const isCurrentWeek = i === 0;
-    const daysInWeek = isCurrentWeek ? new Date().getDay() || 7 : 7;
+    // Sunday = 0, so for current week: Sunday = 1 day, Monday = 2 days, etc.
+    const daysInWeek = isCurrentWeek ? (today === 0 ? 1 : today + 1) : 7;
 
-    weeks.push({
-      week: isCurrentWeek ? `Week ${weekNum} (${daysInWeek}/7 days)` : `Week ${weekNum}`,
-      date_range: `${(weekStart.getMonth() + 1).toString().padStart(2, '0')}/${weekStart.getDate().toString().padStart(2, '0')} - ${(weekEnd.getMonth() + 1).toString().padStart(2, '0')}/${weekEnd.getDate().toString().padStart(2, '0')}`,
-      start_date: weekStart.toISOString().split('T')[0],
-      end_date: weekEnd.toISOString().split('T')[0],
-      daily_data: [],
-      days_count: daysInWeek,
-      avg_readiness: readiness,
-      avg_recovery: recovery,
-      avg_sleep: sleep,
-      avg_hrv: hrv,
-      avg_steps: steps,
-      total_strain: null,
-      total_met_minutes: metMin * daysInWeek,
-      zone,
-      trend: ['↑', '→', '↓'][Math.floor(Math.random() * 3)],
-      health_status: '健康',
-    });
+    // For current incomplete week, show daily breakdown
+    if (isCurrentWeek && daysInWeek < 7) {
+      // Generate daily data
+      const dailyRows: any[] = [];
+      let totalMetMin = 0;
+      let totalReadiness = 0;
+      let totalRecovery = 0;
+      let totalSleep = 0;
+      let totalHrv = 0;
+      let totalSteps = 0;
+
+      for (let d = 0; d < daysInWeek; d++) {
+        const dayDate = new Date(weekStart);
+        dayDate.setDate(dayDate.getDate() + d);
+
+        const dailyMetMin = Math.floor(Math.random() * 150) + 100; // 100-250 per day
+        const readiness = Math.floor(Math.random() * 30) + 60;
+        const recovery = Math.floor(Math.random() * 40) + 40;
+        const sleep = Math.floor(Math.random() * 25) + 65;
+        const hrv = Math.floor(Math.random() * 40) + 30;
+        const steps = Math.floor(Math.random() * 5000) + 6000;
+
+        totalMetMin += dailyMetMin;
+        totalReadiness += readiness;
+        totalRecovery += recovery;
+        totalSleep += sleep;
+        totalHrv += hrv;
+        totalSteps += steps;
+
+        dailyRows.push({
+          week: dayDate.toLocaleDateString('en-US', { weekday: 'short' }),
+          date_range: `${(dayDate.getMonth() + 1).toString().padStart(2, '0')}/${dayDate.getDate().toString().padStart(2, '0')}`,
+          start_date: dayDate.toISOString().split('T')[0],
+          end_date: dayDate.toISOString().split('T')[0],
+          daily_data: [],
+          days_count: 1,
+          avg_readiness: readiness,
+          avg_recovery: recovery,
+          avg_sleep: sleep,
+          avg_hrv: hrv,
+          avg_steps: steps,
+          total_strain: null,
+          total_met_minutes: dailyMetMin,
+          cumulative_met_minutes: totalMetMin,
+          zone: getZone(dailyMetMin, recovery),
+          trend: '→',
+          health_status: '健康',
+          row_type: 'day',
+        });
+      }
+
+      // Sum row first
+      const avgRecovery = Math.round(totalRecovery / daysInWeek);
+      result.push({
+        week: `Week ${weekNum}`,
+        date_range: `${(weekStart.getMonth() + 1).toString().padStart(2, '0')}/${weekStart.getDate().toString().padStart(2, '0')} - now`,
+        start_date: weekStart.toISOString().split('T')[0],
+        end_date: now.toISOString().split('T')[0],
+        daily_data: [],
+        days_count: daysInWeek,
+        avg_readiness: Math.round(totalReadiness / daysInWeek),
+        avg_recovery: avgRecovery,
+        avg_sleep: Math.round(totalSleep / daysInWeek),
+        avg_hrv: Math.round(totalHrv / daysInWeek),
+        avg_steps: Math.round(totalSteps / daysInWeek),
+        total_strain: null,
+        total_met_minutes: totalMetMin,
+        zone: getZone(Math.round(totalMetMin / daysInWeek), avgRecovery),
+        trend: '→',
+        health_status: '健康',
+        row_type: 'week_cumulative',
+      });
+
+      // Then daily rows
+      result.push(...dailyRows);
+    } else {
+      // Complete week - show as single row
+      const dailyMetMin = Math.floor(Math.random() * 150) + 100; // 100-250 per day avg
+      const totalMetMin = dailyMetMin * 7;
+      const readiness = Math.floor(Math.random() * 30) + 60;
+      const recovery = Math.floor(Math.random() * 40) + 40;
+      const sleep = Math.floor(Math.random() * 25) + 65;
+      const hrv = Math.floor(Math.random() * 40) + 30;
+      const steps = Math.floor(Math.random() * 5000) + 6000;
+
+      result.push({
+        week: `Week ${weekNum}`,
+        date_range: `${(weekStart.getMonth() + 1).toString().padStart(2, '0')}/${weekStart.getDate().toString().padStart(2, '0')} - ${(weekEnd.getMonth() + 1).toString().padStart(2, '0')}/${weekEnd.getDate().toString().padStart(2, '0')}`,
+        start_date: weekStart.toISOString().split('T')[0],
+        end_date: weekEnd.toISOString().split('T')[0],
+        daily_data: [],
+        days_count: 7,
+        avg_readiness: readiness,
+        avg_recovery: recovery,
+        avg_sleep: sleep,
+        avg_hrv: hrv,
+        avg_steps: steps,
+        total_strain: null,
+        total_met_minutes: totalMetMin,
+        zone: getZone(dailyMetMin, recovery),
+        trend: ['↑', '→', '↓'][Math.floor(Math.random() * 3)],
+        health_status: '健康',
+        row_type: 'week',
+      });
+    }
   }
 
-  return weeks;
+  return result;
+}
+
+function getZone(dailyMetMin: number, recovery: number): string {
+  if (dailyMetMin > 350) return 'J型右侧风险';
+  if (dailyMetMin > 300) return '右侧临界';
+  if (dailyMetMin > 250) return '高负荷';
+  if (dailyMetMin > 200) return '轻度高负荷';
+  if (dailyMetMin > 180) return '稍高';
+  if (recovery >= 67 && dailyMetMin >= 150 && dailyMetMin <= 180) return '黄金锚点';
+  if (recovery >= 67 && dailyMetMin >= 100 && dailyMetMin <= 200) return '最优区';
+  if (recovery < 34) return '恢复稳态';
+  if (dailyMetMin >= 100 && dailyMetMin <= 200) return '最优区';
+  return '恢复稳态';
 }

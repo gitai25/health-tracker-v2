@@ -86,16 +86,9 @@ export default function TableRow({ row }: TableRowProps) {
         </span>
       </td>
       <td className="px-3 py-2 text-center">
-        <div className="flex flex-col gap-0.5">
-          <span className={`font-mono text-sm ${getHrvStyle(row.avg_hrv_oura ?? null)}`}>
-            {row.avg_hrv_oura ?? "-"}
-            <span className="text-xs text-purple-400 ml-1">O</span>
-          </span>
-          <span className={`font-mono text-sm ${getHrvStyle(row.avg_hrv_whoop ?? null)}`}>
-            {row.avg_hrv_whoop ?? "-"}
-            <span className="text-xs text-green-400 ml-1">W</span>
-          </span>
-        </div>
+        <span className={`font-mono text-sm ${getHrvStyle(row.avg_hrv ?? null)}`}>
+          {row.avg_hrv ?? "-"}
+        </span>
       </td>
       <td className="px-3 py-2 text-center">
         <span className={`font-mono text-sm ${getSleepStyle(row.avg_sleep)}`}>
