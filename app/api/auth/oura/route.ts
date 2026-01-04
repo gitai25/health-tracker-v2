@@ -38,15 +38,6 @@ export async function GET(request: NextRequest) {
   const redirectUri = `${request.nextUrl.origin}/api/auth/oura/callback`;
   const scope = 'daily readiness heartrate workout tag session sleep';
   const state = crypto.randomUUID();
-  const usePkce = process.env.OAUTH_USE_PKCE !== 'false';
-  let codeVerifier: string | null = null;
-  let codeChallenge: string | null = null;
-
-  if (usePkce) {
-    const pkce = await createPkcePair();
-    codeVerifier = pkce.codeVerifier;
-    codeChallenge = pkce.codeChallenge;
-  }
 
   const authUrl = new URL(OURA_AUTH_URL);
   authUrl.searchParams.set('client_id', clientId);
@@ -54,28 +45,15 @@ export async function GET(request: NextRequest) {
   authUrl.searchParams.set('response_type', 'code');
   authUrl.searchParams.set('scope', scope);
   authUrl.searchParams.set('state', state);
-  if (usePkce && codeChallenge) {
-    authUrl.searchParams.set('code_challenge', codeChallenge);
-    authUrl.searchParams.set('code_challenge_method', 'S256');
-  }
 
   const response = NextResponse.redirect(authUrl.toString());
   response.cookies.set('oura_oauth_state', state, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: true,
     maxAge: OAUTH_COOKIE_MAX_AGE,
-    path: '/api/auth/oura',
+    path: '/',
   });
-  if (usePkce && codeVerifier) {
-    response.cookies.set('oura_pkce_verifier', codeVerifier, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: OAUTH_COOKIE_MAX_AGE,
-      path: '/api/auth/oura',
-    });
-  }
 
   return response;
 }
