@@ -298,12 +298,30 @@ export function generateDailyData(
     ? groupByDate(ouraData.activity, 'day')
     : new Map();
 
-  const whoopRecoveryMap = whoopData
-    ? new Map(whoopData.recovery.map((r) => [r.created_at.split('T')[0], r]))
+  // Build recovery map by cycle_id first
+  const recoveryByCycleId = whoopData
+    ? new Map(whoopData.recovery.map((r) => [r.cycle_id, r]))
     : new Map();
+
+  // Map cycles to their date (strain/kilojoule stays on cycle date)
   const whoopCycleMap = whoopData
     ? new Map(whoopData.cycles.map((c) => [c.start.split('T')[0], c]))
     : new Map();
+
+  // Map recovery to NEXT day (wake-up date)
+  const whoopRecoveryMap = new Map<string, WhoopRecovery>();
+  if (whoopData) {
+    for (const cycle of whoopData.cycles) {
+      const recovery = recoveryByCycleId.get(cycle.id);
+      if (recovery) {
+        const cycleDate = new Date(cycle.start.split('T')[0]);
+        cycleDate.setDate(cycleDate.getDate() + 1);
+        const wakeUpDate = cycleDate.toISOString().split('T')[0];
+        whoopRecoveryMap.set(wakeUpDate, recovery);
+      }
+    }
+  }
+
   const whoopSleepMap = whoopData
     ? new Map(whoopData.sleep.map((s) => [s.start.split('T')[0], s]))
     : new Map();
@@ -349,23 +367,33 @@ export function processHealthData(
     ? groupByDate(ouraData.activity, 'day')
     : new Map();
 
-  const whoopRecoveryMap = whoopData
-    ? new Map(
-        whoopData.recovery.map((r) => [
-          r.created_at.split('T')[0],
-          r,
-        ])
-      )
+  // Build recovery map by cycle_id first
+  const recoveryByCycleId = whoopData
+    ? new Map(whoopData.recovery.map((r) => [r.cycle_id, r]))
     : new Map();
+
+  // Map cycles to their date (strain/kilojoule stays on cycle date)
   const whoopCycleMap = whoopData
-    ? new Map(
-        whoopData.cycles.map((c) => [c.start.split('T')[0], c])
-      )
+    ? new Map(whoopData.cycles.map((c) => [c.start.split('T')[0], c]))
     : new Map();
+
+  // Map recovery to NEXT day (wake-up date)
+  // Recovery is measured when you wake up, which is the day after the cycle started
+  const whoopRecoveryMap = new Map<string, WhoopRecovery>();
+  if (whoopData) {
+    for (const cycle of whoopData.cycles) {
+      const recovery = recoveryByCycleId.get(cycle.id);
+      if (recovery) {
+        const cycleDate = new Date(cycle.start.split('T')[0]);
+        cycleDate.setDate(cycleDate.getDate() + 1); // Next day
+        const wakeUpDate = cycleDate.toISOString().split('T')[0];
+        whoopRecoveryMap.set(wakeUpDate, recovery);
+      }
+    }
+  }
+
   const whoopSleepMap = whoopData
-    ? new Map(
-        whoopData.sleep.map((s) => [s.start.split('T')[0], s])
-      )
+    ? new Map(whoopData.sleep.map((s) => [s.start.split('T')[0], s]))
     : new Map();
 
   // Generate all dates in range
