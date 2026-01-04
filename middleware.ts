@@ -2,43 +2,46 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
-const SECRET = new TextEncoder().encode(
-  process.env.AUTH_SECRET || "change-this-secret-in-production-min-32-chars"
-);
 const COOKIE_NAME = "health-tracker-auth";
-
 const publicPaths = ["/login", "/api/login", "/_next", "/favicon.ico"];
 
 function isPublicPath(pathname: string): boolean {
   return publicPaths.some((path) => pathname.startsWith(path));
 }
 
-async function verifyToken(token: string): Promise<boolean> {
-  try {
-    await jwtVerify(token, SECRET);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  try {
+    const { pathname } = request.nextUrl;
 
-  // Skip public paths
-  if (isPublicPath(pathname)) {
+    // Skip public paths
+    if (isPublicPath(pathname)) {
+      return NextResponse.next();
+    }
+
+    // Check auth
+    const token = request.cookies.get(COOKIE_NAME)?.value;
+
+    if (!token) {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+
+    // Verify token
+    const secret = new TextEncoder().encode(
+      process.env.AUTH_SECRET || "change-this-secret-in-production-min-32-chars"
+    );
+
+    try {
+      await jwtVerify(token, secret);
+      return NextResponse.next();
+    } catch {
+      // Invalid token, redirect to login
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+  } catch (error) {
+    console.error("Middleware error:", error);
+    // On error, allow request to proceed (fail open)
     return NextResponse.next();
   }
-
-  // Check auth
-  const token = request.cookies.get(COOKIE_NAME)?.value;
-
-  if (!token || !(await verifyToken(token))) {
-    const loginUrl = new URL("/login", request.url);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  return NextResponse.next();
 }
 
 export const config = {
