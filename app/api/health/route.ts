@@ -2,40 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { OuraClient } from '@/lib/oura-client';
 import { WhoopClient } from '@/lib/whoop-client';
 import { processHealthData } from '@/lib/data-aggregator';
-import { loadLocalData, processLocalData, checkDataSources } from '@/lib/local-data';
 import { getDateRange } from '@/lib/utils';
-import { requireAdmin } from '@/lib/admin-auth';
 
-// Use nodejs runtime for local file access
-export const runtime = 'nodejs';
+export const runtime = 'edge';
 
 export async function GET(request: NextRequest) {
   try {
-    const authResponse = requireAdmin(request);
-    if (authResponse) return authResponse;
-
     const searchParams = request.nextUrl.searchParams;
     const weeks = parseInt(searchParams.get('weeks') || '12', 10);
-    const source = searchParams.get('source') || 'auto'; // 'auto', 'local', 'api'
 
-    // Try local data first (from sync script)
-    if (source === 'local' || source === 'auto') {
-      const localData = loadLocalData();
-      if (localData && localData.daily.length > 0) {
-        const weeklyData = processLocalData(localData);
-        const sources = checkDataSources(localData);
-
-        return NextResponse.json({
-          success: true,
-          data: weeklyData.slice(0, weeks),
-          sources: { ...sources, cached: true },
-          lastSync: localData.last_sync,
-          message: `Data from local cache (last sync: ${new Date(localData.last_sync).toLocaleString()})`,
-        });
-      }
-    }
-
-    // Fall back to API if no local data or source=api
     const { start, end } = getDateRange(weeks);
 
     const ouraToken = process.env.OURA_ACCESS_TOKEN;
@@ -67,7 +42,7 @@ export async function GET(request: NextRequest) {
         success: true,
         data: getDemoData(),
         sources: { oura: false, whoop: false },
-        message: 'Using demo data. Connect Oura or Whoop to see real data.',
+        message: 'Using demo data. Configure OURA_ACCESS_TOKEN or WHOOP_ACCESS_TOKEN.',
       });
     }
 
@@ -93,7 +68,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Demo data
 function getDemoData() {
   const weeks = [];
   const now = new Date();
@@ -123,7 +97,6 @@ function getDemoData() {
     else if (recovery > 67 && metMin >= 1000 && metMin <= 1100) zone = '黄金锚点';
     else if (recovery < 34) zone = '恢复稳态';
 
-    // Current week shows partial data
     const isCurrentWeek = i === 0;
     const daysInWeek = isCurrentWeek ? new Date().getDay() || 7 : 7;
 
