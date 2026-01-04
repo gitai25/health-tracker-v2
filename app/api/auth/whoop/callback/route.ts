@@ -42,12 +42,28 @@ export async function GET(request: NextRequest) {
     const clientSecret = process.env.WHOOP_CLIENT_SECRET;
     const redirectUri = `${request.nextUrl.origin}/api/auth/whoop/callback`;
 
+    // Check if credentials are configured
+    if (!clientId || !clientSecret) {
+      return new NextResponse(
+        `<html><body style="font-family:system-ui;padding:40px">
+          <h2>配置错误</h2>
+          <p>请在 Cloudflare Dashboard 设置环境变量：</p>
+          <ul>
+            <li>WHOOP_CLIENT_ID: ${clientId ? '✓ 已设置' : '✗ 未设置'}</li>
+            <li>WHOOP_CLIENT_SECRET: ${clientSecret ? '✓ 已设置' : '✗ 未设置'}</li>
+          </ul>
+          <p><a href="/">返回首页</a></p>
+        </body></html>`,
+        { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+      );
+    }
+
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
       code,
       redirect_uri: redirectUri,
-      client_id: clientId!,
-      client_secret: clientSecret!,
+      client_id: clientId,
+      client_secret: clientSecret,
     });
 
     if (usePkce && codeVerifier) {
@@ -61,8 +77,21 @@ export async function GET(request: NextRequest) {
     });
 
     if (!response.ok) {
-      console.error('Whoop token error:', await response.text());
-      return NextResponse.redirect(new URL('/?error=token_failed', request.url));
+      const errorText = await response.text();
+      console.error('Whoop token error:', errorText);
+      return new NextResponse(
+        `<html><body style="font-family:system-ui;padding:40px">
+          <h2>Token 获取失败</h2>
+          <p>错误信息：${errorText}</p>
+          <p>请检查：</p>
+          <ul>
+            <li>WHOOP_CLIENT_ID 和 WHOOP_CLIENT_SECRET 是否正确</li>
+            <li>Redirect URI 是否设置为：${redirectUri}</li>
+          </ul>
+          <p><a href="/api/auth/whoop">重新授权</a> | <a href="/">返回首页</a></p>
+        </body></html>`,
+        { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+      );
     }
 
     const tokens = await response.json();
