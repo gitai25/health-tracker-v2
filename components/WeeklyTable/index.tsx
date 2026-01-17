@@ -22,15 +22,20 @@ export default function WeeklyTable({ initialData = [] }: WeeklyTableProps) {
 
   const fetchData = async () => {
     setLoading(true);
+    setError(null);
     try {
       const headers: HeadersInit = {};
       if (adminToken) headers["x-admin-token"] = adminToken;
       const response = await fetch("/api/health?weeks=16", { headers });
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
       const result = await response.json();
 
       if (result.success) {
         setData(result.data);
         setSources(result.sources || { oura: false, whoop: false, cached: false });
+        setError(null);
       } else {
         setError(result.error || "Failed to fetch data");
       }
